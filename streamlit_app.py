@@ -537,16 +537,16 @@ def render_gassco_table(df):
 
 def main():
     with st.sidebar:
-        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#00d4ff !important;">🔥 UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#00d4ff !important;">UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
         st.markdown("---")
         
-        st.markdown("### 📊 Data Source")
+        st.markdown("### Data Source")
         data_source = st.radio("Source", ["National Gas", "GASSCO"], label_visibility="collapsed", key="ds")
         
         st.markdown("---")
         
         if data_source == "National Gas":
-            st.markdown("### 📈 Views")
+            st.markdown("### Views")
             ng_view = st.radio("View", ["Nomination", "Supply", "Demand"], label_visibility="collapsed", key="ngv")
             
             if ng_view == "Supply":
@@ -558,7 +558,7 @@ def main():
                 st.markdown("##### Demand Categories")
                 demand_cat = st.radio("Cat", ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"], label_visibility="collapsed", key="dc")
         else:
-            st.markdown("### 🛢️ Views")
+            st.markdown("### Views")
             gassco_view = st.radio("View", ["Field Outages", "Terminal Outages"], label_visibility="collapsed", key="gv")
         
         st.markdown("---")
@@ -609,7 +609,7 @@ def main():
                     st.metric("Data Points", str(n))
             
             elif ng_view == "Supply":
-                st.markdown(f'<div class="section-header">📈 Supply - {supply_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header"> Supply - {supply_cat}</div>', unsafe_allow_html=True)
                 col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
                 
                 if supply_cat == "IC Import":
@@ -643,7 +643,7 @@ def main():
             st.error("⚠️ Unable to fetch National Gas data.")
     
     else:
-        st.markdown(f'<div class="section-header">🛢️ GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header"> GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
         with st.spinner("Fetching GASSCO data..."):
             fields_df, terminal_df = scrape_gassco_data()
@@ -656,7 +656,7 @@ def main():
                 st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True)
                 st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True)
-                st.markdown("#### 📋 Outages Details")
+                st.markdown("#### Outages Details")
                 render_gassco_table(fields_proc)
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Field Outages</h3><p>No active field outages within 14 days.</p></div>', unsafe_allow_html=True)
