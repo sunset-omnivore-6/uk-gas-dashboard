@@ -1,25 +1,19 @@
-# ============================================================================
-# UK GAS MARKET DASHBOARD - STREAMLIT VERSION
-# ============================================================================
-#
-# DEPLOYMENT INSTRUCTIONS:
-# ------------------------
-# 1. Create a GitHub repository and upload these files:
-#    - streamlit_app.py (this file)
-#    - requirements.txt
-#
-# 2. Go to https://share.streamlit.io
-#    - Sign in with GitHub
-#    - Click "New app"
-#    - Select your repository
-#    - Click "Deploy"
-#
-# 3. Share the URL with your team (e.g., https://uk-gas-dashboard.streamlit.app)
-#
-# That's it! Users just click the link - no downloads, no setup required.
-# When you update the code on GitHub, the app updates automatically.
-#
-# ============================================================================
+# improve readability of graph 
+
+"""
+UK Gas Market Dashboard - Streamlit Application
+================================================
+A professional dashboard for monitoring UK gas market data.
+
+Features:
+- Sidebar navigation with hierarchical menu
+- Real-time data from National Gas and GASSCO APIs
+- Interactive Plotly charts with proper light theme
+- Responsive design for all screen sizes
+
+Requirements:
+    pip install streamlit plotly pandas numpy requests beautifulsoup4 lxml
+"""
 
 import streamlit as st
 import requests
@@ -29,21 +23,196 @@ import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# Page configuration - MUST be first Streamlit command
+# ============================================================================
+# PAGE CONFIGURATION
+# ============================================================================
+
 st.set_page_config(
     page_title="UK Gas Market Dashboard",
-    page_icon="⛽",
+    page_icon="🔥",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# CACHING - Data is cached for 5 minutes to avoid hitting APIs too frequently
+# CUSTOM CSS
 # ============================================================================
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+st.markdown("""
+<style>
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
+    }
+    
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+    }
+    
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3 {
+        color: #00d4ff !important;
+    }
+    
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label {
+        color: #e0e0e0 !important;
+    }
+    
+    .dashboard-header {
+        background: linear-gradient(135deg, #0097a9 0%, #005f6b 100%);
+        padding: 1.5rem 2rem;
+        border-radius: 12px;
+        margin-bottom: 1.5rem;
+        color: white;
+    }
+    
+    .dashboard-header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 700;
+        color: white !important;
+    }
+    
+    .dashboard-header p {
+        margin: 0.5rem 0 0 0;
+        opacity: 0.9;
+        font-size: 0.95rem;
+        color: white !important;
+    }
+    
+    .metric-card {
+        background: linear-gradient(135deg, #0097a9 0%, #006670 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(0, 151, 169, 0.3);
+        margin-bottom: 1rem;
+    }
+    
+    .metric-card .label {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        margin-bottom: 0.5rem;
+    }
+    
+    .metric-card .value {
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+    
+    .section-header {
+        background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%);
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        margin: 1.5rem 0 1rem 0;
+        color: white;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+    
+    .nomination-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        margin: 1rem 0;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .nomination-table th {
+        background-color: #2C3E50;
+        color: white;
+        padding: 14px 16px;
+        text-align: left;
+        font-weight: 600;
+    }
+    
+    .nomination-table td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .nomination-table .demand { background-color: #F5D6B3; color: #333; }
+    .nomination-table .demand-total { background-color: #E69F00; font-weight: 600; color: #333; }
+    .nomination-table .supply { background-color: #B3D9F2; color: #333; }
+    .nomination-table .supply-total { background-color: #0072B2; color: white; font-weight: 600; }
+    .nomination-table .balance { background-color: #CC79A7; color: white; font-weight: 600; }
+    
+    .info-box {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-left: 4px solid #0097a9;
+        padding: 1rem 1.5rem;
+        border-radius: 0 8px 8px 0;
+        margin: 1rem 0;
+        color: #333;
+    }
+    
+    .no-data {
+        text-align: center;
+        padding: 3rem;
+        background: #f8f9fa;
+        border-radius: 12px;
+        border: 2px dashed #dee2e6;
+        color: #6c757d;
+    }
+    
+    .no-data h3 {
+        color: #495057;
+        margin-bottom: 0.5rem;
+    }
+    
+    .legend-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+        padding: 1rem 1.5rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+        color: #333;
+    }
+    
+    .legend-box {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+    
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #0097a9 0%, #006670 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================================
+# DATA FETCHING FUNCTIONS
+# ============================================================================
+
+@st.cache_data(ttl=120)
 def scrape_gassco_data():
-    """Scrape REMIT data from GASSCO website"""
     try:
         session = requests.Session()
         session.get("https://umm.gassco.no/", timeout=10)
@@ -52,57 +221,40 @@ def scrape_gassco_data():
         soup = BeautifulSoup(response.content, 'html.parser')
         msg_tables = soup.find_all('table', class_='msgTable')
         
-        fields_df = None
-        terminal_df = None
-        
-        if len(msg_tables) > 0:
-            fields_df = parse_gassco_table(msg_tables[0])
-        if len(msg_tables) > 1:
-            terminal_df = parse_gassco_table(msg_tables[1])
+        fields_df = parse_gassco_table(msg_tables[0]) if len(msg_tables) > 0 else None
+        terminal_df = parse_gassco_table(msg_tables[1]) if len(msg_tables) > 1 else None
         
         return fields_df, terminal_df
-    except Exception as e:
-        st.error(f"Error fetching GASSCO data: {e}")
+    except:
         return None, None
 
+
 def parse_gassco_table(table):
-    """Parse a GASSCO table into a DataFrame"""
     rows = table.find_all('tr', id=True)
     data = []
     
     for row in rows:
-        row_id = row.get('id')
         cells = row.find_all('td')
         cell_texts = [cell.get_text(strip=True) for cell in cells]
         
         if len(cell_texts) >= 19:
             data.append({
-                'Message ID': cell_texts[0],
                 'Affected Asset or Unit': cell_texts[1],
                 'Event Status': cell_texts[2],
                 'Type of Unavailability': cell_texts[3],
-                'Type of Event': cell_texts[4],
                 'Publication date/time': cell_texts[5],
                 'Event Start': cell_texts[6],
                 'Event Stop': cell_texts[7],
-                'Unit of Measurement': cell_texts[8],
                 'Technical Capacity': cell_texts[9],
                 'Available Capacity': cell_texts[10],
                 'Unavailable Capacity': cell_texts[11],
                 'Reason for the unavailability': cell_texts[12],
-                'Remarks': cell_texts[13],
-                'Balancing Zone': cell_texts[14],
-                'Market Participant': cell_texts[15],
-                'Market Participant Code': cell_texts[16],
-                'Affected Asset or Unit EIC Code': cell_texts[17],
-                'Direction': cell_texts[18],
-                'url ID': row_id
             })
     
     return pd.DataFrame(data) if data else None
 
+
 def process_remit_data(df):
-    """Process REMIT data - filter, convert dates, calculate metrics"""
     if df is None or len(df) == 0:
         return None
     
@@ -114,9 +266,8 @@ def process_remit_data(df):
     df['Event Start'] = pd.to_datetime(df['Event Start'], format='ISO8601', utc=True)
     df['Event Stop'] = pd.to_datetime(df['Event Stop'], format='ISO8601', utc=True)
     
-    df['Technical Capacity'] = pd.to_numeric(df['Technical Capacity'], errors='coerce')
-    df['Available Capacity'] = pd.to_numeric(df['Available Capacity'], errors='coerce')
-    df['Unavailable Capacity'] = pd.to_numeric(df['Unavailable Capacity'], errors='coerce')
+    for col in ['Technical Capacity', 'Available Capacity', 'Unavailable Capacity']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
     
     cutoff = datetime.now(df['Event Start'].dt.tz) + timedelta(days=14)
     df = df[(df['Event Start'] <= cutoff) | (df['Event Stop'] <= cutoff)]
@@ -125,568 +276,396 @@ def process_remit_data(df):
         return None
     
     df = df.drop_duplicates()
-    df = df.sort_values(['Affected Asset or Unit', 'Publication date/time'], ascending=[True, False])
-    
-    df['% Unavailable'] = (df['Unavailable Capacity'] / df['Technical Capacity']) * 100
     df['Duration'] = (df['Event Stop'] - df['Event Start']).dt.total_seconds() / (24 * 3600)
     df['midpoint'] = df['Event Start'] + (df['Event Stop'] - df['Event Start']) / 2
     
-    columns_to_keep = [
-        'Affected Asset or Unit', 'Type of Unavailability', 'Type of Event',
-        'Publication date/time', 'Event Start', 'Event Stop',
-        'Technical Capacity', 'Available Capacity', 'Unavailable Capacity',
-        'Reason for the unavailability', 'Remarks',
-        '% Unavailable', 'Duration', 'midpoint'
-    ]
-    df = df[columns_to_keep]
-    df = df.sort_values('Unavailable Capacity')
-    
-    return df
+    return df.sort_values('Unavailable Capacity')
 
-@st.cache_data(ttl=300)
+
+@st.cache_data(ttl=120)
 def get_gas_data(request_type):
-    """Fetch gas data from National Gas API"""
     try:
         url = "https://data.nationalgas.com/api/gas-system-status-graph"
-        body = {"request": request_type}
-        response = requests.post(url, json=body, headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }, timeout=10)
-        data_json = response.json()
-        df = pd.DataFrame(data_json["data"])
-        return df
-    except Exception as e:
-        st.error(f"Error fetching National Gas data: {e}")
+        response = requests.post(url, json={"request": request_type}, 
+                                headers={"Content-Type": "application/json"}, timeout=10)
+        return pd.DataFrame(response.json()["data"])
+    except:
         return None
 
-@st.cache_data(ttl=300)
+
+@st.cache_data(ttl=120)
 def get_nominations(date_str, category_ids):
-    """Fetch nomination data from National Gas API"""
     base_url = "https://data.nationalgas.com/api/find-gas-data-download?applicableFor=Y&dateFrom="
     conversion = 11111111.11
     nominations = []
     for ids in category_ids:
-        url = base_url + date_str + "&dateTo=" + date_str + "&dateType=GASDAY&latestFlag=Y&ids=" + ids + "&type=CSV"
         try:
+            url = f"{base_url}{date_str}&dateTo={date_str}&dateType=GASDAY&latestFlag=Y&ids={ids}&type=CSV"
             df = pd.read_csv(url)
-            if len(df) > 0:
-                value = df['Value'].sum() / conversion
-            else:
-                value = 0
+            nominations.append(round(df['Value'].sum() / conversion, 2) if len(df) > 0 else 0)
         except:
-            value = 0
-        nominations.append(round(value, 2))
+            nominations.append(0)
     return nominations
 
+
 # ============================================================================
-# CHART CREATION FUNCTIONS
+# CHART FUNCTIONS
 # ============================================================================
 
+def get_chart_layout(title="", height=500):
+    return dict(
+        title=dict(text=title, font=dict(size=18, color='#1e293b')),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(color='#1e293b', size=12),
+        hovermode='x unified',
+        height=height,
+        margin=dict(l=60, r=60, t=100, b=60),
+        xaxis=dict(gridcolor='#e2e8f0', linecolor='#cbd5e1', tickfont=dict(color='#475569')),
+        yaxis=dict(gridcolor='#e2e8f0', linecolor='#cbd5e1', tickfont=dict(color='#475569'))
+    )
+
+
 def create_gassco_timeline_plot(df, title_prefix):
-    """Create interactive timeline plot for GASSCO data"""
-    outage_colors = {'Planned': '#f8b4b4', 'Unplanned': '#7fcdcd'}
+    colors = {'Planned': '#f97316', 'Unplanned': '#06b6d4'}
     fig = go.Figure()
-    shown_legends = set()
+    shown = set()
     
-    for idx, row in df.iterrows():
-        color = outage_colors.get(row['Type of Unavailability'], '#cccccc')
-        show_legend = row['Type of Unavailability'] not in shown_legends
-        
+    for _, row in df.iterrows():
+        color = colors.get(row['Type of Unavailability'], '#94a3b8')
+        show_legend = row['Type of Unavailability'] not in shown
         if show_legend:
-            shown_legends.add(row['Type of Unavailability'])
+            shown.add(row['Type of Unavailability'])
         
         fig.add_trace(go.Scatter(
             x=[row['Event Start'], row['Event Stop']],
             y=[row['Affected Asset or Unit'], row['Affected Asset or Unit']],
-            mode='lines',
-            line=dict(color=color, width=20),
+            mode='lines', line=dict(color=color, width=20),
             name=row['Type of Unavailability'],
             legendgroup=row['Type of Unavailability'],
             showlegend=show_legend,
-            hovertemplate=(
-                f"<b>{row['Affected Asset or Unit']}</b><br>"
-                f"Type: {row['Type of Unavailability']}<br>"
-                f"Start: {row['Event Start'].strftime('%d %b %Y %H:%M')}<br>"
-                f"Stop: {row['Event Stop'].strftime('%d %b %Y %H:%M')}<br>"
-                f"Unavailable: {row['Unavailable Capacity']:.1f} MSm³/d<br>"
-                f"Duration: {row['Duration']:.1f} days<extra></extra>"
-            )
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=[row['Event Start']], y=[row['Affected Asset or Unit']],
-            mode='markers', marker=dict(color=color, size=8, symbol='circle'),
-            showlegend=False, hoverinfo='skip'
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=[row['Event Stop']], y=[row['Affected Asset or Unit']],
-            mode='markers', marker=dict(color=color, size=8, symbol='triangle-right'),
-            showlegend=False, hoverinfo='skip'
+            hovertemplate=f"<b>{row['Affected Asset or Unit']}</b><br>Type: {row['Type of Unavailability']}<br>Unavailable: {row['Unavailable Capacity']:.1f} MSm³/d<extra></extra>"
         ))
         
         fig.add_annotation(
             x=row['midpoint'], y=row['Affected Asset or Unit'],
-            text=f"{row['Unavailable Capacity']:.1f} MSm³/d",
-            showarrow=False, font=dict(size=12, color='black'),
-            yshift=24, xanchor='center'
+            text=f"<b>{row['Unavailable Capacity']:.1f}</b>",
+            showarrow=False, font=dict(size=11, color='#1e293b'),
+            yshift=22, bgcolor='rgba(255,255,255,0.9)', bordercolor='#cbd5e1', borderwidth=1, borderpad=4
         )
     
     today = datetime.now(df['Event Start'].dt.tz)
+    layout = get_chart_layout(f"<b>{title_prefix} Outages Timeline</b>", max(450, len(df) * 65))
+    layout['xaxis']['type'] = 'date'
+    layout['xaxis']['tickformat'] = '%d %b'
+    layout['yaxis']['categoryorder'] = 'array'
+    layout['yaxis']['categoryarray'] = df['Affected Asset or Unit'].tolist()
+    layout['shapes'] = [dict(type='line', x0=today, x1=today, y0=0, y1=1, yref='paper', line=dict(color='#ef4444', width=2, dash='dash'))]
     
-    fig.update_layout(
-        title=dict(
-            text=f"<b>{title_prefix} Outages Timeline</b><br><sub>Active outages within 14 days | Today: {datetime.now().strftime('%d %b %Y')}</sub>",
-            font=dict(size=16)
-        ),
-        xaxis=dict(title="", type='date', tickformat='%d %b', dtick=3*24*60*60*1000),
-        yaxis=dict(title=title_prefix, categoryorder='array', 
-                   categoryarray=df['Affected Asset or Unit'].tolist()),
-        hovermode='closest',
-        shapes=[dict(type='line', x0=today, x1=today, y0=0, y1=1, yref='paper',
-                    line=dict(color='gray', width=2, dash='dash'))],
-        legend=dict(title=dict(text='Outage Type'), orientation='v', x=1.02, y=1),
-        height=max(400, len(df) * 50), plot_bgcolor='white', paper_bgcolor='white',
-        margin=dict(l=150, r=100, t=100, b=50)
-    )
-    
-    fig.add_annotation(
-        x=today, y=1.02, yref='paper', text='Today', showarrow=False,
-        font=dict(size=14, color='#2c3e50'), bgcolor='white',
-        bordercolor='#cccccc', borderwidth=1, borderpad=4
-    )
+    fig.update_layout(**layout)
+    fig.add_annotation(x=today, y=1.02, yref='paper', text='<b>Today</b>', showarrow=False, font=dict(size=12, color='#ef4444'), bgcolor='white', bordercolor='#ef4444', borderwidth=1, borderpad=4)
     
     return fig
 
+
 def create_gassco_cumulative_plot(df, title_prefix):
-    """Create cumulative unavailable capacity plot"""
     events = []
     for _, row in df.iterrows():
-        events.append({'time': row['Event Start'], 'delta_capacity': -row['Unavailable Capacity']})
-        events.append({'time': row['Event Stop'], 'delta_capacity': row['Unavailable Capacity']})
+        events.append({'time': row['Event Start'], 'delta': -row['Unavailable Capacity']})
+        events.append({'time': row['Event Stop'], 'delta': row['Unavailable Capacity']})
     
-    events_df = pd.DataFrame(events)
-    events_df = events_df.groupby('time')['delta_capacity'].sum().reset_index()
-    events_df = events_df.sort_values('time')
-    events_df['cumulative_unavailable'] = events_df['delta_capacity'].cumsum()
+    events_df = pd.DataFrame(events).groupby('time')['delta'].sum().reset_index().sort_values('time')
+    events_df['cumulative'] = events_df['delta'].cumsum()
     
     fig = go.Figure()
-    
     fig.add_trace(go.Scatter(
-        x=events_df['time'], y=events_df['cumulative_unavailable'],
-        mode='lines+markers',
-        line=dict(shape='hv', color='#c0392b', width=2),
-        marker=dict(size=6, color='#c0392b'),
-        hovertemplate="<b>Time:</b> %{x|%d %b %Y %H:%M}<br><b>Cumulative Unavailable:</b> %{y:.1f} MSm³/d<br><extra></extra>"
+        x=events_df['time'], y=events_df['cumulative'],
+        mode='lines+markers', line=dict(shape='hv', color='#dc2626', width=3),
+        marker=dict(size=8), fill='tozeroy', fillcolor='rgba(220, 38, 38, 0.1)',
+        hovertemplate="<b>Time:</b> %{x|%d %b %Y %H:%M}<br><b>Cumulative:</b> %{y:.1f} MSm³/d<extra></extra>"
     ))
     
     today = datetime.now(df['Event Start'].dt.tz)
+    layout = get_chart_layout(f"<b>{title_prefix} Cumulative Unavailable</b>", 450)
+    layout['xaxis']['type'] = 'date'
+    layout['yaxis']['title'] = 'Unavailable Capacity (MSm³/d)'
+    layout['shapes'] = [dict(type='line', x0=today, x1=today, y0=0, y1=1, yref='paper', line=dict(color='#1e293b', width=2, dash='dash'))]
+    layout['showlegend'] = False
     
-    fig.update_layout(
-        title=dict(
-            text=f"<b>{title_prefix} Cumulative Outages</b>",
-            font=dict(size=16)
-        ),
-        xaxis=dict(title="", type='date', tickformat='%d %b', dtick=3*24*60*60*1000),
-        yaxis=dict(title='Unavailable Capacity (MSm³/d)', zeroline=True,
-                  zerolinecolor='gray', zerolinewidth=1),
-        hovermode='closest',
-        shapes=[dict(type='line', x0=today, x1=today, y0=0, y1=1, yref='paper',
-                    line=dict(color='#2c3e50', width=2, dash='dash'))],
-        height=400, plot_bgcolor='white', paper_bgcolor='white',
-        margin=dict(l=80, r=50, t=80, b=50)
-    )
-    
+    fig.update_layout(**layout)
     return fig
 
-def create_flow_chart(df, column_name, chart_title, color='#1f77b4'):
-    """Create a flow chart figure"""
-    flow_averages = np.average(df[column_name], weights=df['interval_seconds'])
+
+def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
+    if column_name not in df.columns:
+        return None, 0, 0, 0
+    
+    avg = np.average(df[column_name], weights=df['interval_seconds'])
     
     today = datetime.now().date()
-    gas_day_start = datetime.combine(today, datetime.min.time().replace(hour=5, minute=0, second=0))
-    gas_day_end = gas_day_start + timedelta(days=1)
+    start = datetime.combine(today, datetime.min.time().replace(hour=5))
+    end = start + timedelta(days=1)
     now = datetime.now()
     
-    elapsed_seconds = (now - gas_day_start).total_seconds()
-    total_gas_day_seconds = (gas_day_end - gas_day_start).total_seconds()
-    elapsed_pct = max(0, min(1, elapsed_seconds / total_gas_day_seconds))
-    
-    total_flow_so_far = flow_averages * elapsed_pct
+    elapsed_pct = max(0, min(1, (now - start).total_seconds() / 86400))
+    total = avg * elapsed_pct
     
     fig = go.Figure()
-    
     fig.add_trace(go.Scatter(
-        x=df['Timestamp'], 
-        y=df[column_name],
-        mode='lines', 
-        name=chart_title,
-        line=dict(color=color, width=2),
+        x=df['Timestamp'], y=df[column_name],
+        mode='lines', line=dict(color=color, width=3),
+        fill='tozeroy', fillcolor='rgba(0, 151, 169, 0.15)',
         hovertemplate='<b>Time:</b> %{x|%H:%M}<br><b>Flow:</b> %{y:.2f} mcm<extra></extra>'
     ))
     
-    fig.add_hline(
-        y=flow_averages, 
-        line_dash="dash", 
-        line_color="red", 
-        line_width=2,
-        annotation_text=f"Avg: {flow_averages:.2f} mcm", 
-        annotation_position="right",
-        annotation=dict(font=dict(size=12, color="red"), bgcolor="rgba(255,255,255,0.8)")
-    )
+    fig.add_hline(y=avg, line_dash="dash", line_color="#ef4444", line_width=2,
+                  annotation_text=f"<b>Avg: {avg:.2f}</b>", annotation_position="right",
+                  annotation=dict(font=dict(size=12, color="#ef4444"), bgcolor="white", bordercolor="#ef4444", borderwidth=1))
     
-    now_ms = int(now.timestamp() * 1000)
+    fig.add_vline(x=int(now.timestamp() * 1000), line_color="#1e293b", line_width=2,
+                  annotation_text=f"<b>Now: {total:.2f}</b>", annotation_position="top",
+                  annotation=dict(font=dict(size=12, color='#1e293b'), bgcolor="white", bordercolor="#1e293b", borderwidth=1))
     
-    fig.add_vline(
-        x=now_ms, 
-        line_color="black", 
-        line_width=3,
-        annotation_text=f"Now: {total_flow_so_far:.2f} mcm", 
-        annotation_position="top",
-        annotation=dict(font=dict(size=12), bgcolor="rgba(255,255,255,0.8)")
-    )
+    y_max = max(df[column_name].max(), 1)
+    layout = get_chart_layout(f"<b>{chart_title}</b>", 450)
+    layout['xaxis']['range'] = [start, end]
+    layout['xaxis']['tickformat'] = '%H:%M'
+    layout['yaxis']['range'] = [0, y_max * 1.25]
+    layout['yaxis']['title'] = 'Flow Rate (mcm)'
+    layout['showlegend'] = False
     
-    y_max = df[column_name].max()
-    if y_max == 0:
-        y_max = 1
-    
-    fig.update_layout(
-        title=dict(text=chart_title, font=dict(size=16)),
-        xaxis=dict(title="", range=[gas_day_start, gas_day_end], tickformat='%H:%M', dtick=7200000),
-        yaxis=dict(title="Flow Rate (mcm)", range=[0, y_max * 1.2]),
-        plot_bgcolor='white', paper_bgcolor='white',
-        hovermode='x unified', showlegend=False,
-        margin=dict(l=60, r=60, t=60, b=60), height=400
-    )
-    
-    current_flow = df[column_name].iloc[-1]
-    
-    return fig, flow_averages, total_flow_so_far, current_flow
+    fig.update_layout(**layout)
+    return fig, avg, total, df[column_name].iloc[-1] if len(df) > 0 else 0
 
-def create_nomination_summary(demand_df, supply_df):
-    """Create nomination summary dataframe"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    demand_ids = [
-        "PUBOBJ1156,PUBOBJ1160,PUBOBJ1157",
-        "PUBOBJ1153",
-        "PUBOBJ1154",
-        "PUBOBJ1155",
-        "PUBOBJ1597",
-        "PUBOBJ1094",
-        "PUBOBJ1093"
-    ]
-    
-    supply_ids = [
-        "PUBOBJ1149",
-        "PUBOBJ1158,PUBOBJ1150",
-        "PUBOBJ1106",
-        "PUBOBJ1126",
-        "PUBOBJ1147"
-    ]
-    
-    demand_nominations = get_nominations(today, demand_ids)
-    supply_nominations = get_nominations(today, supply_ids)
-    
-    def summarise_category(df, category_columns, nominations):
-        results = []
-        n_obs = len(df)
-        pct_day = (n_obs * 2) / 1440
-        
-        for i, col in enumerate(category_columns):
-            if col in df.columns:
-                avg_5am_to_now = df[col].mean()
-                current_eod = avg_5am_to_now * pct_day
-                instant = df[col].iloc[-1]
-                
-                results.append({
-                    "Category": col,
-                    "Avg Rate (mcm)": round(avg_5am_to_now, 1),
-                    "Completed (mcm)": round(current_eod, 1),
-                    "Current (mcm)": round(instant, 1),
-                    "Nominated (mcm)": nominations[i] if i < len(nominations) else 0
-                })
-        
-        return pd.DataFrame(results)
-    
-    demand_columns = ["LDZ Offtake", "Power Station", "Industrial", "Storage Injection",
-                      "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]
-    supply_columns = ["Storage Withdrawal", "LNG", "Bacton BBL Import", 
-                      "Bacton INT Import", "Beach (UKCS/Norway)"]
-    
-    demand_summary = summarise_category(demand_df, demand_columns, demand_nominations)
-    supply_summary = summarise_category(supply_df, supply_columns, supply_nominations)
-    
-    return demand_summary, supply_summary
 
 # ============================================================================
-# MAIN APP
+# UI COMPONENTS
+# ============================================================================
+
+def render_metric_cards(metrics):
+    cols = st.columns(len(metrics))
+    for col, (label, value, unit) in zip(cols, metrics):
+        with col:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="label">{label}</div>
+                <div class="value">{value:.2f} {unit}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+def render_nomination_table(demand_df, supply_df):
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    demand_ids = ["PUBOBJ1156,PUBOBJ1160,PUBOBJ1157", "PUBOBJ1153", "PUBOBJ1154", "PUBOBJ1155", "PUBOBJ1597", "PUBOBJ1094", "PUBOBJ1093"]
+    supply_ids = ["PUBOBJ1149", "PUBOBJ1158,PUBOBJ1150", "PUBOBJ1106", "PUBOBJ1126", "PUBOBJ1147"]
+    
+    demand_noms = get_nominations(today, demand_ids)
+    supply_noms = get_nominations(today, supply_ids)
+    
+    demand_cols = ["LDZ Offtake", "Power Station", "Industrial", "Storage Injection", "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]
+    supply_cols = ["Storage Withdrawal", "LNG", "Bacton BBL Import", "Bacton INT Import", "Beach (UKCS/Norway)"]
+    
+    def summarise(df, cols, noms):
+        n = len(df) if df is not None else 0
+        pct = (n * 2) / 1440 if n > 0 else 0
+        results = []
+        for i, col in enumerate(cols):
+            if df is not None and col in df.columns:
+                avg, comp, inst = df[col].mean(), df[col].mean() * pct, df[col].iloc[-1] if len(df) > 0 else 0
+            else:
+                avg, comp, inst = 0, 0, 0
+            results.append({"Category": col, "Avg": round(avg, 2), "Comp": round(comp, 2), "Inst": round(inst, 2), "Nom": noms[i] if i < len(noms) else 0})
+        return pd.DataFrame(results)
+    
+    demand_sum = summarise(demand_df, demand_cols, demand_noms)
+    supply_sum = summarise(supply_df, supply_cols, supply_noms)
+    
+    d_tot = demand_sum[["Avg", "Comp", "Inst", "Nom"]].sum()
+    s_tot = supply_sum[["Avg", "Comp", "Inst", "Nom"]].sum()
+    bal = s_tot - d_tot
+    
+    st.markdown("""
+    <div class="legend-container">
+        <div class="legend-item"><div class="legend-box" style="background-color: #F5D6B3;"></div> Demand</div>
+        <div class="legend-item"><div class="legend-box" style="background-color: #E69F00;"></div> Demand Total</div>
+        <div class="legend-item"><div class="legend-box" style="background-color: #B3D9F2;"></div> Supply</div>
+        <div class="legend-item"><div class="legend-box" style="background-color: #0072B2;"></div> Supply Total</div>
+        <div class="legend-item"><div class="legend-box" style="background-color: #CC79A7;"></div> Balance</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    rows = []
+    for _, r in demand_sum.iterrows():
+        rows.append(f'<tr class="demand"><td>{r["Category"]}</td><td style="text-align:right;">{r["Avg"]:.1f}</td><td style="text-align:right;">{r["Comp"]:.1f}</td><td style="text-align:right;">{r["Inst"]:.1f}</td><td style="text-align:right;">{r["Nom"]:.1f}</td></tr>')
+    rows.append(f'<tr class="demand-total"><td><strong>DEMAND TOTAL</strong></td><td style="text-align:right;"><strong>{d_tot["Avg"]:.1f}</strong></td><td style="text-align:right;"><strong>{d_tot["Comp"]:.1f}</strong></td><td style="text-align:right;"><strong>{d_tot["Inst"]:.1f}</strong></td><td style="text-align:right;"><strong>{d_tot["Nom"]:.1f}</strong></td></tr>')
+    
+    for _, r in supply_sum.iterrows():
+        rows.append(f'<tr class="supply"><td>{r["Category"]}</td><td style="text-align:right;">{r["Avg"]:.1f}</td><td style="text-align:right;">{r["Comp"]:.1f}</td><td style="text-align:right;">{r["Inst"]:.1f}</td><td style="text-align:right;">{r["Nom"]:.1f}</td></tr>')
+    rows.append(f'<tr class="supply-total"><td><strong>SUPPLY TOTAL</strong></td><td style="text-align:right;"><strong>{s_tot["Avg"]:.1f}</strong></td><td style="text-align:right;"><strong>{s_tot["Comp"]:.1f}</strong></td><td style="text-align:right;"><strong>{s_tot["Inst"]:.1f}</strong></td><td style="text-align:right;"><strong>{s_tot["Nom"]:.1f}</strong></td></tr>')
+    rows.append(f'<tr class="balance"><td><strong>BALANCE</strong></td><td style="text-align:right;"><strong>{bal["Avg"]:.1f}</strong></td><td style="text-align:right;"><strong>{bal["Comp"]:.1f}</strong></td><td style="text-align:right;"><strong>{bal["Inst"]:.1f}</strong></td><td style="text-align:right;"><strong>{bal["Nom"]:.1f}</strong></td></tr>')
+    
+    st.markdown(f"""
+    <table class="nomination-table">
+        <thead><tr><th>Category</th><th style="text-align:right;">Avg Rate (mcm)</th><th style="text-align:right;">Completed (mcm)</th><th style="text-align:right;">Instant (mcm)</th><th style="text-align:right;">Nominated (mcm)</th></tr></thead>
+        <tbody>{''.join(rows)}</tbody>
+    </table>
+    """, unsafe_allow_html=True)
+    
+    return bal
+
+
+def render_gassco_table(df):
+    display_df = df.copy()
+    for col in ['Publication date/time', 'Event Start', 'Event Stop']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].dt.strftime('%Y-%m-%d %H:%M')
+    
+    cols = ['Affected Asset or Unit', 'Type of Unavailability', 'Event Start', 'Event Stop', 'Unavailable Capacity', 'Duration', 'Reason for the unavailability']
+    cols = [c for c in cols if c in display_df.columns]
+    
+    st.dataframe(display_df[cols], use_container_width=True, hide_index=True)
+
+
+# ============================================================================
+# MAIN APPLICATION
 # ============================================================================
 
 def main():
-    # Header
-    st.title("⛽ UK Gas Market Dashboard")
-    st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Data refreshes every 5 minutes")
-    
-    # Refresh button in sidebar
     with st.sidebar:
-        st.header("🔄 Controls")
-        if st.button("🔄 Refresh Data Now", use_container_width=True):
+        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#00d4ff !important;">🔥 UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        st.markdown("### 📊 Data Source")
+        data_source = st.radio("Source", ["National Gas", "GASSCO"], label_visibility="collapsed", key="ds")
+        
+        st.markdown("---")
+        
+        if data_source == "National Gas":
+            st.markdown("### 📈 Views")
+            ng_view = st.radio("View", ["Nomination", "Supply", "Demand"], label_visibility="collapsed", key="ngv")
+            
+            if ng_view == "Supply":
+                st.markdown("---")
+                st.markdown("##### Supply Categories")
+                supply_cat = st.radio("Cat", ["LNG", "Storage Withdrawal", "Beach Terminal", "IC Import"], label_visibility="collapsed", key="sc")
+            elif ng_view == "Demand":
+                st.markdown("---")
+                st.markdown("##### Demand Categories")
+                demand_cat = st.radio("Cat", ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"], label_visibility="collapsed", key="dc")
+        else:
+            st.markdown("### 🛢️ Views")
+            gassco_view = st.radio("View", ["Field Outages", "Terminal Outages"], label_visibility="collapsed", key="gv")
+        
+        st.markdown("---")
+        if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
         
-        st.divider()
-        st.header("📊 Navigation")
-        page = st.radio(
-            "Select View:",
-            ["📈 National Gas - Nominations", 
-             "📊 National Gas - Supply",
-             "📉 National Gas - Demand",
-             "🔧 GASSCO - Field Outages",
-             "🏭 GASSCO - Terminal Outages"],
-            label_visibility="collapsed"
-        )
-        
-        st.divider()
-        st.caption("Data sources: National Gas, GASSCO")
-        
-        # Auto-refresh toggle
-        auto_refresh = st.checkbox("Auto-refresh (5 min)", value=False)
-        if auto_refresh:
-            st.caption("Page will refresh automatically")
-            import time
-            time.sleep(300)  # 5 minutes
-            st.rerun()
+        st.markdown(f'<div style="text-align:center;padding:1rem 0;font-size:0.8rem;color:#718096;">Last updated:<br>{datetime.now().strftime("%H:%M:%S")}</div>', unsafe_allow_html=True)
     
-    # Load data with progress indicator
-    with st.spinner("Loading data..."):
-        # National Gas data
+    st.markdown('<div class="dashboard-header"><h1>UK Gas Market Dashboard</h1><p>Real-time monitoring of UK gas supply, demand, and infrastructure status</p></div>', unsafe_allow_html=True)
+    
+    if data_source == "National Gas":
         demand_df = get_gas_data("demandCategoryGraph")
         supply_df = get_gas_data("supplyCategoryGraph")
         
-        if demand_df is not None:
+        if demand_df is not None and supply_df is not None:
             if 'Storage' in demand_df.columns:
-                demand_df = demand_df.rename(columns={'Storage': 'Storage Injection'})
+                demand_df.rename(columns={'Storage': 'Storage Injection'}, inplace=True)
             
             n = len(demand_df)
             today = datetime.now().date()
-            start_time = datetime.combine(today, datetime.min.time().replace(hour=5, minute=0, second=0))
-            timestamps = [start_time + timedelta(minutes=2*i) for i in range(n)]
-            demand_df['Timestamp'] = timestamps
+            start = datetime.combine(today, datetime.min.time().replace(hour=5))
+            ts = [start + timedelta(minutes=2*i) for i in range(n)]
+            
+            demand_df['Timestamp'] = ts
             demand_df = demand_df.sort_values('Timestamp').reset_index(drop=True)
-            demand_df['next_time'] = demand_df['Timestamp'].shift(-1)
-            demand_df.loc[demand_df.index[-1], 'next_time'] = demand_df['Timestamp'].iloc[-1] + timedelta(minutes=2)
+            demand_df['next_time'] = demand_df['Timestamp'].shift(-1).fillna(demand_df['Timestamp'].iloc[-1] + timedelta(minutes=2))
             demand_df['interval_seconds'] = (demand_df['next_time'] - demand_df['Timestamp']).dt.total_seconds()
-        
-        if supply_df is not None:
-            n = len(supply_df)
-            timestamps = [start_time + timedelta(minutes=2*i) for i in range(n)]
-            supply_df['Timestamp'] = timestamps
+            
+            n_s = len(supply_df)
+            ts_s = [start + timedelta(minutes=2*i) for i in range(n_s)]
+            supply_df['Timestamp'] = ts_s
             supply_df = supply_df.sort_values('Timestamp').reset_index(drop=True)
-            supply_df['next_time'] = supply_df['Timestamp'].shift(-1)
-            supply_df.loc[supply_df.index[-1], 'next_time'] = supply_df['Timestamp'].iloc[-1] + timedelta(minutes=2)
+            supply_df['next_time'] = supply_df['Timestamp'].shift(-1).fillna(supply_df['Timestamp'].iloc[-1] + timedelta(minutes=2))
             supply_df['interval_seconds'] = (supply_df['next_time'] - supply_df['Timestamp']).dt.total_seconds()
-        
-        # GASSCO data
-        fields_df, terminal_df = scrape_gassco_data()
-        fields_processed = process_remit_data(fields_df)
-        terminal_processed = process_remit_data(terminal_df)
-    
-    # Display content based on selection
-    if page == "📈 National Gas - Nominations":
-        st.header("UK Gas Flows - Supply, Demand & Balance")
-        
-        if demand_df is not None and supply_df is not None:
-            demand_summary, supply_summary = create_nomination_summary(demand_df, supply_df)
             
-            col1, col2 = st.columns(2)
+            if ng_view == "Nomination":
+                st.markdown('<div class="section-header">📋 UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
+                st.markdown('<div class="info-box"><strong>Nomination Table</strong> shows the current gas day flows. All values in mcm.</div>', unsafe_allow_html=True)
+                bal = render_nomination_table(demand_df, supply_df)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Current Balance", f"{bal['Inst']:.1f} mcm", delta="Surplus" if bal['Inst'] >= 0 else "Deficit")
+                with col2:
+                    st.metric("Gas Day Progress", f"{((datetime.now() - start).total_seconds() / 86400 * 100):.0f}%")
+                with col3:
+                    st.metric("Data Points", str(n))
             
-            with col1:
-                st.subheader("📤 Demand")
-                st.dataframe(
-                    demand_summary.style.format({
-                        'Avg Rate (mcm)': '{:.1f}',
-                        'Completed (mcm)': '{:.1f}',
-                        'Current (mcm)': '{:.1f}',
-                        'Nominated (mcm)': '{:.1f}'
-                    }).background_gradient(cmap='Oranges', subset=['Avg Rate (mcm)']),
-                    use_container_width=True,
-                    hide_index=True
-                )
-                demand_total = demand_summary['Avg Rate (mcm)'].sum()
-                st.metric("Total Demand Rate", f"{demand_total:.1f} mcm")
+            elif ng_view == "Supply":
+                st.markdown(f'<div class="section-header">📈 Supply - {supply_cat}</div>', unsafe_allow_html=True)
+                col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
+                
+                if supply_cat == "IC Import":
+                    supply_df['Total IC Import'] = supply_df['Bacton BBL Import'] + supply_df['Bacton INT Import']
+                    col_name = 'Total IC Import'
+                else:
+                    col_name = col_map[supply_cat]
+                
+                if col_name and col_name in supply_df.columns:
+                    fig, avg, total, current = create_flow_chart(supply_df, col_name, f'{supply_cat} Flow', '#0097a9')
+                    if fig:
+                        render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
+                        st.plotly_chart(fig, use_container_width=True)
             
-            with col2:
-                st.subheader("📥 Supply")
-                st.dataframe(
-                    supply_summary.style.format({
-                        'Avg Rate (mcm)': '{:.1f}',
-                        'Completed (mcm)': '{:.1f}',
-                        'Current (mcm)': '{:.1f}',
-                        'Nominated (mcm)': '{:.1f}'
-                    }).background_gradient(cmap='Blues', subset=['Avg Rate (mcm)']),
-                    use_container_width=True,
-                    hide_index=True
-                )
-                supply_total = supply_summary['Avg Rate (mcm)'].sum()
-                st.metric("Total Supply Rate", f"{supply_total:.1f} mcm")
-            
-            # Balance
-            st.divider()
-            balance = supply_total - demand_total
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Supply", f"{supply_total:.1f} mcm")
-            col2.metric("Total Demand", f"{demand_total:.1f} mcm")
-            col3.metric("Balance", f"{balance:.1f} mcm", delta=f"{balance:.1f} mcm")
+            elif ng_view == "Demand":
+                st.markdown(f'<div class="section-header">📉 Demand - {demand_cat}</div>', unsafe_allow_html=True)
+                col_map = {"CCGT": "Power Station", "Storage Injection": "Storage Injection", "LDZ": "LDZ Offtake", "Industrial": "Industrial", "IC Export": None}
+                
+                if demand_cat == "IC Export":
+                    demand_df['Total IC Export'] = demand_df['Bacton BBL Export'] + demand_df['Bacton INT Export'] + demand_df['Moffat Export']
+                    col_name = 'Total IC Export'
+                else:
+                    col_name = col_map[demand_cat]
+                
+                if col_name and col_name in demand_df.columns:
+                    fig, avg, total, current = create_flow_chart(demand_df, col_name, f'{demand_cat} Flow', '#f59e0b')
+                    if fig:
+                        render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
+                        st.plotly_chart(fig, use_container_width=True)
         else:
-            st.error("Unable to load National Gas data")
+            st.error("⚠️ Unable to fetch National Gas data.")
     
-    elif page == "📊 National Gas - Supply":
-        st.header("Supply Categories")
+    else:
+        st.markdown(f'<div class="section-header">🛢️ GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
-        if supply_df is not None:
-            tab1, tab2, tab3, tab4 = st.tabs(["LNG", "Storage Withdrawal", "Beach Terminal", "Interconnector Import"])
-            
-            with tab1:
-                fig, avg, total, current = create_flow_chart(supply_df, 'LNG', 'LNG Import Flow', '#1f77b4')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab2:
-                fig, avg, total, current = create_flow_chart(supply_df, 'Storage Withdrawal', 'Storage Withdrawal Flow', '#2ca02c')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab3:
-                fig, avg, total, current = create_flow_chart(supply_df, 'Beach (UKCS/Norway)', 'Beach Terminal Supply', '#9467bd')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab4:
-                supply_df['Total IC Import'] = supply_df['Bacton BBL Import'] + supply_df['Bacton INT Import']
-                fig, avg, total, current = create_flow_chart(supply_df, 'Total IC Import', 'Interconnector Import', '#d62728')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.error("Unable to load supply data")
-    
-    elif page == "📉 National Gas - Demand":
-        st.header("Demand Categories")
+        with st.spinner("Fetching GASSCO data..."):
+            fields_df, terminal_df = scrape_gassco_data()
         
-        if demand_df is not None:
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"])
-            
-            with tab1:
-                fig, avg, total, current = create_flow_chart(demand_df, 'Power Station', 'CCGT Power Station', '#ff7f0e')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab2:
-                fig, avg, total, current = create_flow_chart(demand_df, 'Storage Injection', 'Storage Injection', '#2ca02c')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab3:
-                fig, avg, total, current = create_flow_chart(demand_df, 'LDZ Offtake', 'LDZ Offtake', '#1f77b4')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab4:
-                fig, avg, total, current = create_flow_chart(demand_df, 'Industrial', 'Industrial Demand', '#9467bd')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with tab5:
-                demand_df['Total IC Export'] = demand_df['Bacton BBL Export'] + demand_df['Bacton INT Export'] + demand_df['Moffat Export']
-                fig, avg, total, current = create_flow_chart(demand_df, 'Total IC Export', 'Interconnector Export', '#d62728')
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Average Rate", f"{avg:.2f} mcm")
-                col2.metric("Total So Far", f"{total:.2f} mcm")
-                col3.metric("Current Flow", f"{current:.2f} mcm")
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.error("Unable to load demand data")
-    
-    elif page == "🔧 GASSCO - Field Outages":
-        st.header("GASSCO Field Outages")
-        st.caption("Active outages within the next 14 days")
+        fields_proc = process_remit_data(fields_df)
+        terminal_proc = process_remit_data(terminal_df)
         
-        if fields_processed is not None and len(fields_processed) > 0:
-            # Summary metrics
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Active Outages", len(fields_processed))
-            col2.metric("Total Unavailable", f"{fields_processed['Unavailable Capacity'].sum():.1f} MSm³/d")
-            planned = len(fields_processed[fields_processed['Type of Unavailability'] == 'Planned'])
-            col3.metric("Planned / Unplanned", f"{planned} / {len(fields_processed) - planned}")
-            
-            # Timeline chart
-            st.plotly_chart(create_gassco_timeline_plot(fields_processed, "Field"), use_container_width=True)
-            
-            # Cumulative chart
-            st.plotly_chart(create_gassco_cumulative_plot(fields_processed, "Field"), use_container_width=True)
-            
-            # Data table
-            st.subheader("Outage Details")
-            display_df = fields_processed.copy()
-            display_df['Event Start'] = display_df['Event Start'].dt.strftime('%Y-%m-%d %H:%M')
-            display_df['Event Stop'] = display_df['Event Stop'].dt.strftime('%Y-%m-%d %H:%M')
-            display_df = display_df.drop(columns=['midpoint', 'Publication date/time'], errors='ignore')
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        if gassco_view == "Field Outages":
+            if fields_proc is not None and len(fields_proc) > 0:
+                st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
+                st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True)
+                st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True)
+                st.markdown("#### 📋 Outages Details")
+                render_gassco_table(fields_proc)
+            else:
+                st.markdown('<div class="no-data"><h3>✅ No Field Outages</h3><p>No active field outages within 14 days.</p></div>', unsafe_allow_html=True)
         else:
-            st.info("✅ No active field outages in the next 14 days")
-    
-    elif page == "🏭 GASSCO - Terminal Outages":
-        st.header("GASSCO Terminal Outages")
-        st.caption("Active outages within the next 14 days")
-        
-        if terminal_processed is not None and len(terminal_processed) > 0:
-            # Summary metrics
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Active Outages", len(terminal_processed))
-            col2.metric("Total Unavailable", f"{terminal_processed['Unavailable Capacity'].sum():.1f} MSm³/d")
-            planned = len(terminal_processed[terminal_processed['Type of Unavailability'] == 'Planned'])
-            col3.metric("Planned / Unplanned", f"{planned} / {len(terminal_processed) - planned}")
-            
-            # Timeline chart
-            st.plotly_chart(create_gassco_timeline_plot(terminal_processed, "Terminal"), use_container_width=True)
-            
-            # Cumulative chart
-            st.plotly_chart(create_gassco_cumulative_plot(terminal_processed, "Terminal"), use_container_width=True)
-            
-            # Data table
-            st.subheader("Outage Details")
-            display_df = terminal_processed.copy()
-            display_df['Event Start'] = display_df['Event Start'].dt.strftime('%Y-%m-%d %H:%M')
-            display_df['Event Stop'] = display_df['Event Stop'].dt.strftime('%Y-%m-%d %H:%M')
-            display_df = display_df.drop(columns=['midpoint', 'Publication date/time'], errors='ignore')
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("✅ No active terminal outages in the next 14 days")
+            if terminal_proc is not None and len(terminal_proc) > 0:
+                st.markdown(f'<div class="info-box"><strong>{len(terminal_proc)} active terminal outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
+                st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True)
+                st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True)
+                st.markdown("#### 📋 Outages Details")
+                render_gassco_table(terminal_proc)
+            else:
+                st.markdown('<div class="no-data"><h3>✅ No Terminal Outages</h3><p>No active terminal outages within 14 days.</p></div>', unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
