@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 # Page configuration
 st.set_page_config(
     page_title="UK Gas Market Dashboard",
-    page_icon="⚙️",
+    page_icon="∇",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -277,24 +277,26 @@ def get_gas_data(request_type):
         st.error(f"Error fetching gas data: {str(e)}")
         return None
 
-# same as above but for nominations - FIXED VERSION
+# same as above but for nominations - FIXED VERSION MATCHING WORKING CODE
 @st.cache_data(ttl=120)
 def get_nominations(date_str, category_ids):
+    """Fetch nomination data from National Gas API"""
     base_url = "https://data.nationalgas.com/api/find-gas-data-download?applicableFor=Y&dateFrom="
     conversion = 11111111.11
     nominations = []
     
     for ids in category_ids:
+        url = f"{base_url}{date_str}&dateTo={date_str}&dateType=GASDAY&latestFlag=Y&ids={ids}&type=CSV"
         try:
-            url = f"{base_url}{date_str}&dateTo={date_str}&dateType=GASDAY&latestFlag=Y&ids={ids}&type=CSV"
             df = pd.read_csv(url)
-            if len(df) > 0 and 'Value' in df.columns:
-                nominations.append(round(df['Value'].sum() / conversion, 2))
+            if len(df) > 0:
+                value = df['Value'].sum() / conversion
             else:
-                nominations.append(0)
+                value = 0
         except Exception as e:
             print(f"Error fetching nomination for {ids}: {str(e)}")
-            nominations.append(0)
+            value = 0
+        nominations.append(round(value, 2))
     
     return nominations
 
@@ -310,17 +312,24 @@ def get_chart_layout(title="", height=500):
         hovermode='x unified',
         height=height,
         margin=dict(l=60, r=60, t=100, b=60),
+        template='plotly_white',  # Force white template to override dark mode
         xaxis=dict(
             gridcolor='#e2e8f0', 
-            linecolor='#1e293b',  # Changed to dark color for visibility
-            tickfont=dict(color='#1e293b'),  # Changed to dark color
-            title_font=dict(color='#1e293b')
+            linecolor='#1e293b',
+            linewidth=2,
+            tickfont=dict(color='#1e293b', size=12),
+            title_font=dict(color='#1e293b', size=14),
+            showline=True,
+            mirror=True
         ),
         yaxis=dict(
             gridcolor='#e2e8f0', 
-            linecolor='#1e293b',  # Changed to dark color for visibility
-            tickfont=dict(color='#1e293b'),  # Changed to dark color
-            title_font=dict(color='#1e293b')
+            linecolor='#1e293b',
+            linewidth=2,
+            tickfont=dict(color='#1e293b', size=12),
+            title_font=dict(color='#1e293b', size=14),
+            showline=True,
+            mirror=True
         )
     )
 
@@ -434,6 +443,14 @@ def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
     layout['showlegend'] = False
     
     fig.update_layout(**layout)
+    
+    # Force light theme configuration
+    config = {
+        'displayModeBar': True,
+        'displaylogo': False,
+        'modeBarButtonsToRemove': ['lasso2d', 'select2d']
+    }
+    
     return fig, avg, total, df[column_name].iloc[-1] if len(df) > 0 else 0
 
 
@@ -450,20 +467,29 @@ def render_metric_cards(metrics):
 
 
 # FIXED NOMINATION TABLE FUNCTION
+# FIXED NOMINATION TABLE FUNCTION
 def render_nomination_table(demand_df, supply_df):
     today = datetime.now().strftime("%Y-%m-%d")
     
     demand_ids = ["PUBOBJ1156,PUBOBJ1160,PUBOBJ1157", "PUBOBJ1153", "PUBOBJ1154", "PUBOBJ1155", "PUBOBJ1597", "PUBOBJ1094", "PUBOBJ1093"]
     supply_ids = ["PUBOBJ1149", "PUBOBJ1158,PUBOBJ1150", "PUBOBJ1106", "PUBOBJ1126", "PUBOBJ1147"]
     
-    # Fetch nominations with error handling
-    try:
-        demand_noms = get_nominations(today, demand_ids)
-        supply_noms = get_nominations(today, supply_ids)
-    except Exception as e:
-        st.warning(f"Could not fetch nominations: {str(e)}")
-        demand_noms = [0] * len(demand_ids)
-        supply_noms = [0] * len(supply_ids)
+    # Fetch nominations with error handling and debugging
+    demand_noms = []
+    supply_noms = []
+    
+    with st.spinner("Fetching nomination data..."):
+        try:
+            demand_noms = get_nominations(today, demand_ids)
+            supply_noms = get_nominations(today, supply_ids)
+            
+            # Debug info - can be removed later
+            if sum(demand_noms) == 0 and sum(supply_noms) == 0:
+                st.info("⚠️ Nomination data may not be available yet for today's gas day")
+        except Exception as e:
+            st.warning(f"Could not fetch nominations: {str(e)}")
+            demand_noms = [0] * len(demand_ids)
+            supply_noms = [0] * len(supply_ids)
     
     demand_cols = ["LDZ Offtake", "Power Station", "Industrial", "Storage Injection", "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]
     supply_cols = ["Storage Withdrawal", "LNG", "Bacton BBL Import", "Bacton INT Import", "Beach (UKCS/Norway)"]
@@ -537,16 +563,16 @@ def render_gassco_table(df):
 
 def main():
     with st.sidebar:
-        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#00d4ff !important;">UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#00d4ff !important;">🔥 UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
         st.markdown("---")
         
-        st.markdown("### Data Source")
+        st.markdown("### 📊 Data Source")
         data_source = st.radio("Source", ["National Gas", "GASSCO"], label_visibility="collapsed", key="ds")
         
         st.markdown("---")
         
         if data_source == "National Gas":
-            st.markdown("### Views")
+            st.markdown("### 📈 Views")
             ng_view = st.radio("View", ["Nomination", "Supply", "Demand"], label_visibility="collapsed", key="ngv")
             
             if ng_view == "Supply":
@@ -558,7 +584,7 @@ def main():
                 st.markdown("##### Demand Categories")
                 demand_cat = st.radio("Cat", ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"], label_visibility="collapsed", key="dc")
         else:
-            st.markdown("### Views")
+            st.markdown("### 🛢️ Views")
             gassco_view = st.radio("View", ["Field Outages", "Terminal Outages"], label_visibility="collapsed", key="gv")
         
         st.markdown("---")
@@ -609,7 +635,7 @@ def main():
                     st.metric("Data Points", str(n))
             
             elif ng_view == "Supply":
-                st.markdown(f'<div class="section-header"> Supply - {supply_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header">📈 Supply - {supply_cat}</div>', unsafe_allow_html=True)
                 col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
                 
                 if supply_cat == "IC Import":
@@ -622,7 +648,7 @@ def main():
                     fig, avg, total, current = create_flow_chart(supply_df, col_name, f'{supply_cat} Flow', '#0097a9')
                     if fig:
                         render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, theme=None)  # theme=None prevents dark mode override
             
             elif ng_view == "Demand":
                 st.markdown(f'<div class="section-header">📉 Demand - {demand_cat}</div>', unsafe_allow_html=True)
@@ -638,12 +664,12 @@ def main():
                     fig, avg, total, current = create_flow_chart(demand_df, col_name, f'{demand_cat} Flow', '#f59e0b')
                     if fig:
                         render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, theme=None)  # theme=None prevents dark mode override
         else:
             st.error("⚠️ Unable to fetch National Gas data.")
     
     else:
-        st.markdown(f'<div class="section-header"> GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">🛢️ GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
         with st.spinner("Fetching GASSCO data..."):
             fields_df, terminal_df = scrape_gassco_data()
@@ -654,17 +680,17 @@ def main():
         if gassco_view == "Field Outages":
             if fields_proc is not None and len(fields_proc) > 0:
                 st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
-                st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True)
-                st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True)
-                st.markdown("#### Outages Details")
+                st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True, theme=None)
+                st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True, theme=None)
+                st.markdown("#### 📋 Outages Details")
                 render_gassco_table(fields_proc)
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Field Outages</h3><p>No active field outages within 14 days.</p></div>', unsafe_allow_html=True)
         else:
             if terminal_proc is not None and len(terminal_proc) > 0:
                 st.markdown(f'<div class="info-box"><strong>{len(terminal_proc)} active terminal outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
-                st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True)
-                st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True)
+                st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
+                st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
                 st.markdown("#### 📋 Outages Details")
                 render_gassco_table(terminal_proc)
             else:
