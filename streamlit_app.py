@@ -1,20 +1,12 @@
-# improve readability of graph 
+# update: 27/01/2026
 
 """
-UK Gas Market Dashboard - Streamlit Application
-================================================
-A professional dashboard for monitoring UK gas market data.
-
-Features:
-- Sidebar navigation with hierarchical menu
-- Real-time data from National Gas and GASSCO APIs
-- Interactive Plotly charts with proper light theme
-- Responsive design for all screen sizes
+UK Gas Market Dashboard
 
 Requirements:
     pip install streamlit plotly pandas numpy requests beautifulsoup4 lxml
 """
-
+#import the relevant files 
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -23,21 +15,16 @@ import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# ============================================================================
-# PAGE CONFIGURATION
-# ============================================================================
-
+# Page configuration
 st.set_page_config(
     page_title="UK Gas Market Dashboard",
-    page_icon="🔥",
+    page_icon="∇",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ============================================================================
-# CUSTOM CSS
-# ============================================================================
 
+# cascadng style sheet 
 st.markdown("""
 <style>
     .main .block-container {
@@ -207,28 +194,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ============================================================================
-# DATA FETCHING FUNCTIONS
-# ============================================================================
-
+#functions to get the data
 @st.cache_data(ttl=120)
 def scrape_gassco_data():
     try:
         session = requests.Session()
         session.get("https://umm.gassco.no/", timeout=10)
-        session.get("https://umm.gassco.no/disclaimer/acceptDisclaimer", timeout=10)
+        session.get("https://umm.gassco.no/disclaimer/acceptDisclaimer", timeout=10) # uses this to get around the disclaimer on gassco page 
         response = session.get("https://umm.gassco.no/", timeout=10)
         soup = BeautifulSoup(response.content, 'html.parser')
         msg_tables = soup.find_all('table', class_='msgTable')
         
-        fields_df = parse_gassco_table(msg_tables[0]) if len(msg_tables) > 0 else None
+        fields_df = parse_gassco_table(msg_tables[0]) if len(msg_tables) > 0 else None # checks here if tables exist, this makes sure its pulled in the data correctly 
         terminal_df = parse_gassco_table(msg_tables[1]) if len(msg_tables) > 1 else None
         
         return fields_df, terminal_df
     except:
         return None, None
 
-
+#create function pull out the desired information from the gassco tables
 def parse_gassco_table(table):
     rows = table.find_all('tr', id=True)
     data = []
@@ -253,7 +237,7 @@ def parse_gassco_table(table):
     
     return pd.DataFrame(data) if data else None
 
-
+#process the tables by changing the time formats (chr -> time) and seeting a 2 week cutoff for REMIT changes 
 def process_remit_data(df):
     if df is None or len(df) == 0:
         return None
@@ -269,7 +253,7 @@ def process_remit_data(df):
     for col in ['Technical Capacity', 'Available Capacity', 'Unavailable Capacity']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    cutoff = datetime.now(df['Event Start'].dt.tz) + timedelta(days=14)
+    cutoff = datetime.now(df['Event Start'].dt.tz) + timedelta(days=14) # Change here for a longer/shorter view window 
     df = df[(df['Event Start'] <= cutoff) | (df['Event Stop'] <= cutoff)]
     
     if len(df) == 0:
@@ -277,12 +261,12 @@ def process_remit_data(df):
     
     df = df.drop_duplicates()
     df['Duration'] = (df['Event Stop'] - df['Event Start']).dt.total_seconds() / (24 * 3600)
-    df['midpoint'] = df['Event Start'] + (df['Event Stop'] - df['Event Start']) / 2
+    df['midpoint'] = df['Event Start'] + (df['Event Stop'] - df['Event Start']) / 2 #define midpoint for the plot annotation
     
     return df.sort_values('Unavailable Capacity')
 
-
-@st.cache_data(ttl=120)
+#set up scrapper to get national gas data, runs every 2 mins 
+@st.cache_data(ttl=120) #change time here for faster/slower intervals, limited by the national gas publishing
 def get_gas_data(request_type):
     try:
         url = "https://data.nationalgas.com/api/gas-system-status-graph"
@@ -292,8 +276,8 @@ def get_gas_data(request_type):
     except:
         return None
 
-
-@st.cache_data(ttl=120)
+# same as above but for nominations 
+@st.cache_data(ttl=120) # check nominations here as it doesnt seem to be running 
 def get_nominations(date_str, category_ids):
     base_url = "https://data.nationalgas.com/api/find-gas-data-download?applicableFor=Y&dateFrom="
     conversion = 11111111.11
@@ -308,10 +292,8 @@ def get_nominations(date_str, category_ids):
     return nominations
 
 
-# ============================================================================
-# CHART FUNCTIONS
-# ============================================================================
 
+#functions for making the chart 
 def get_chart_layout(title="", height=500):
     return dict(
         title=dict(text=title, font=dict(size=18, color='#1e293b')),
@@ -327,7 +309,7 @@ def get_chart_layout(title="", height=500):
 
 
 def create_gassco_timeline_plot(df, title_prefix):
-    colors = {'Planned': '#f97316', 'Unplanned': '#06b6d4'}
+    colors = {'Planned': '#7fcdcd', 'Unplanned': '#f8b4b4'}
     fig = go.Figure()
     shown = set()
     
@@ -438,10 +420,7 @@ def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
     return fig, avg, total, df[column_name].iloc[-1] if len(df) > 0 else 0
 
 
-# ============================================================================
-# UI COMPONENTS
-# ============================================================================
-
+#need to understand this bit more, currently we have a side bar for naviagting through the options, I want this to be integrated into the page itself
 def render_metric_cards(metrics):
     cols = st.columns(len(metrics))
     for col, (label, value, unit) in zip(cols, metrics):
