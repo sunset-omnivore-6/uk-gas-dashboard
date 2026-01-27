@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 
-# cascadng style sheet 
+# cascading style sheet 
 st.markdown("""
 <style>
     .main .block-container {
@@ -237,7 +237,7 @@ def parse_gassco_table(table):
     
     return pd.DataFrame(data) if data else None
 
-#process the tables by changing the time formats (chr -> time) and seeting a 2 week cutoff for REMIT changes 
+#process the tables by changing the time formats (chr -> time) and setting a 2 week cutoff for REMIT changes 
 def process_remit_data(df):
     if df is None or len(df) == 0:
         return None
@@ -273,27 +273,34 @@ def get_gas_data(request_type):
         response = requests.post(url, json={"request": request_type}, 
                                 headers={"Content-Type": "application/json"}, timeout=10)
         return pd.DataFrame(response.json()["data"])
-    except:
+    except Exception as e:
+        st.error(f"Error fetching gas data: {str(e)}")
         return None
 
-# same as above but for nominations 
-@st.cache_data(ttl=120) # check nominations here as it doesnt seem to be running 
+# same as above but for nominations - FIXED VERSION
+@st.cache_data(ttl=120)
 def get_nominations(date_str, category_ids):
     base_url = "https://data.nationalgas.com/api/find-gas-data-download?applicableFor=Y&dateFrom="
     conversion = 11111111.11
     nominations = []
+    
     for ids in category_ids:
         try:
             url = f"{base_url}{date_str}&dateTo={date_str}&dateType=GASDAY&latestFlag=Y&ids={ids}&type=CSV"
             df = pd.read_csv(url)
-            nominations.append(round(df['Value'].sum() / conversion, 2) if len(df) > 0 else 0)
-        except:
+            if len(df) > 0 and 'Value' in df.columns:
+                nominations.append(round(df['Value'].sum() / conversion, 2))
+            else:
+                nominations.append(0)
+        except Exception as e:
+            print(f"Error fetching nomination for {ids}: {str(e)}")
             nominations.append(0)
+    
     return nominations
 
 
 
-#functions for making the chart 
+#functions for making the chart - FIXED VERSION WITH BETTER COLORS
 def get_chart_layout(title="", height=500):
     return dict(
         title=dict(text=title, font=dict(size=18, color='#1e293b')),
@@ -303,8 +310,18 @@ def get_chart_layout(title="", height=500):
         hovermode='x unified',
         height=height,
         margin=dict(l=60, r=60, t=100, b=60),
-        xaxis=dict(gridcolor='#e2e8f0', linecolor='#cbd5e1', tickfont=dict(color='#475569')),
-        yaxis=dict(gridcolor='#e2e8f0', linecolor='#cbd5e1', tickfont=dict(color='#475569'))
+        xaxis=dict(
+            gridcolor='#e2e8f0', 
+            linecolor='#1e293b',  # Changed to dark color for visibility
+            tickfont=dict(color='#1e293b'),  # Changed to dark color
+            title_font=dict(color='#1e293b')
+        ),
+        yaxis=dict(
+            gridcolor='#e2e8f0', 
+            linecolor='#1e293b',  # Changed to dark color for visibility
+            tickfont=dict(color='#1e293b'),  # Changed to dark color
+            title_font=dict(color='#1e293b')
+        )
     )
 
 
@@ -420,7 +437,6 @@ def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
     return fig, avg, total, df[column_name].iloc[-1] if len(df) > 0 else 0
 
 
-#need to understand this bit more, currently we have a side bar for naviagting through the options, I want this to be integrated into the page itself
 def render_metric_cards(metrics):
     cols = st.columns(len(metrics))
     for col, (label, value, unit) in zip(cols, metrics):
@@ -433,14 +449,21 @@ def render_metric_cards(metrics):
             """, unsafe_allow_html=True)
 
 
+# FIXED NOMINATION TABLE FUNCTION
 def render_nomination_table(demand_df, supply_df):
     today = datetime.now().strftime("%Y-%m-%d")
     
     demand_ids = ["PUBOBJ1156,PUBOBJ1160,PUBOBJ1157", "PUBOBJ1153", "PUBOBJ1154", "PUBOBJ1155", "PUBOBJ1597", "PUBOBJ1094", "PUBOBJ1093"]
     supply_ids = ["PUBOBJ1149", "PUBOBJ1158,PUBOBJ1150", "PUBOBJ1106", "PUBOBJ1126", "PUBOBJ1147"]
     
-    demand_noms = get_nominations(today, demand_ids)
-    supply_noms = get_nominations(today, supply_ids)
+    # Fetch nominations with error handling
+    try:
+        demand_noms = get_nominations(today, demand_ids)
+        supply_noms = get_nominations(today, supply_ids)
+    except Exception as e:
+        st.warning(f"Could not fetch nominations: {str(e)}")
+        demand_noms = [0] * len(demand_ids)
+        supply_noms = [0] * len(supply_ids)
     
     demand_cols = ["LDZ Offtake", "Power Station", "Industrial", "Storage Injection", "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]
     supply_cols = ["Storage Withdrawal", "LNG", "Bacton BBL Import", "Bacton INT Import", "Beach (UKCS/Norway)"]
@@ -451,7 +474,9 @@ def render_nomination_table(demand_df, supply_df):
         results = []
         for i, col in enumerate(cols):
             if df is not None and col in df.columns:
-                avg, comp, inst = df[col].mean(), df[col].mean() * pct, df[col].iloc[-1] if len(df) > 0 else 0
+                avg = df[col].mean() if not df[col].isna().all() else 0
+                comp = avg * pct
+                inst = df[col].iloc[-1] if len(df) > 0 and not df[col].isna().all() else 0
             else:
                 avg, comp, inst = 0, 0, 0
             results.append({"Category": col, "Avg": round(avg, 2), "Comp": round(comp, 2), "Inst": round(inst, 2), "Nom": noms[i] if i < len(noms) else 0})
