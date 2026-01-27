@@ -654,8 +654,8 @@ def main():
         if gassco_view == "Field Outages":
             if fields_proc is not None and len(fields_proc) > 0:
                 st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
-                st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True)
-                st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True)
+                st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True, theme=None)
+                st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True, theme=None)
                 st.markdown("#### Outages Details")
                 render_gassco_table(fields_proc)
             else:
@@ -663,8 +663,8 @@ def main():
         else:
             if terminal_proc is not None and len(terminal_proc) > 0:
                 st.markdown(f'<div class="info-box"><strong>{len(terminal_proc)} active terminal outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
-                st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True)
-                st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True)
+                st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
+                st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
                 st.markdown("#### 📋 Outages Details")
                 render_gassco_table(terminal_proc)
             else:
