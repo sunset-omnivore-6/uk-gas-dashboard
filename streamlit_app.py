@@ -1041,11 +1041,11 @@ def main():
             
             if ng_view == "Supply":
                 st.markdown("---")
-                st.markdown("##### <span style='color:#DBDB2E;'>Supply Categories</span>", unsafe_allow_html=True)
+                st.markdown("##### <span style='color:#FFFF00;'>Supply Categories</span>", unsafe_allow_html=True)
                 supply_cat = st.radio("Cat", ["LNG", "Storage Withdrawal", "Beach Terminal", "IC Import"], label_visibility="collapsed", key="sc")
             elif ng_view == "Demand":
                 st.markdown("---")
-                st.markdown("##### Demand Categories")
+                st.markdown("##### <span style='color:#FFFF00;'>Supply Categories</span>", unsafe_allow_html=True)
                 demand_cat = st.radio("Cat", ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"], label_visibility="collapsed", key="dc")
         
         elif data_source == "GASSCO":
