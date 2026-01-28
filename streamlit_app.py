@@ -255,16 +255,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .data-source-badge {
-        display: inline-block;
-        background: #e2e8f0;
-        color: #475569;
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        margin-left: 0.5rem;
-    }
-    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
@@ -294,9 +284,11 @@ def get_vessel_info(ship_name: str) -> dict:
     Returns:
         Dictionary containing vessel information
     """
+    # Encode the ship name for URL
     search_name = quote(ship_name, safe='')
     search_url = f"https://www.vesselfinder.com/vessels?name={search_name}"
     
+    # Default return structure for errors/not found
     default_result = {
         'Ship': ship_name,
         'IMO': None,
@@ -309,12 +301,15 @@ def get_vessel_info(ship_name: str) -> dict:
     }
     
     try:
+        # Add delay to avoid rate limiting
         time.sleep(1)
         
+        # Set headers to mimic browser request
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
+        # Search for the vessel
         response = requests.get(search_url, headers=headers, timeout=10)
         if response.status_code != 200:
             default_result['Status'] = f'HTTP Error: {response.status_code}'
@@ -322,6 +317,7 @@ def get_vessel_info(ship_name: str) -> dict:
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
+        # Find the first vessel link
         vessel_links = soup.find_all('a', href=True)
         vessel_link = None
         for link in vessel_links:
@@ -332,6 +328,7 @@ def get_vessel_info(ship_name: str) -> dict:
         if not vessel_link:
             return default_result
         
+        # Fetch the vessel details page
         vessel_url = f"https://www.vesselfinder.com{vessel_link}"
         time.sleep(0.5)
         vessel_response = requests.get(vessel_url, headers=headers, timeout=10)
@@ -342,8 +339,22 @@ def get_vessel_info(ship_name: str) -> dict:
         
         vessel_soup = BeautifulSoup(vessel_response.content, 'html.parser')
         
+        # Extract vessel details from the page
+        def extract_table_value(soup, label):
+            """Helper function to extract value from table row by label."""
+            # Try finding in table cells
+            cells = soup.find_all('td')
+            for i, cell in enumerate(cells):
+                if label.lower() in cell.get_text(strip=True).lower():
+                    # Get the next cell if it exists
+                    if i + 1 < len(cells):
+                        return cells[i + 1].get_text(strip=True)
+            return None
+        
+        # Alternative method: look for specific data patterns
         def extract_from_page(soup, label):
-            """Extract value from page using various structures."""
+            """Alternative extraction using various page structures."""
+            # Method 1: Look for label in any element followed by value
             for elem in soup.find_all(['td', 'span', 'div']):
                 text = elem.get_text(strip=True)
                 if text.lower() == label.lower():
@@ -351,6 +362,7 @@ def get_vessel_info(ship_name: str) -> dict:
                     if next_elem:
                         return next_elem.get_text(strip=True)
             
+            # Method 2: Look for tables with the data
             tables = soup.find_all('table')
             for table in tables:
                 rows = table.find_all('tr')
@@ -362,6 +374,7 @@ def get_vessel_info(ship_name: str) -> dict:
                                 return cells[i + 1].get_text(strip=True)
             return None
         
+        # Extract all vessel details
         imo = extract_from_page(vessel_soup, 'IMO')
         mmsi = extract_from_page(vessel_soup, 'MMSI')
         flag = extract_from_page(vessel_soup, 'Flag')
@@ -390,7 +403,7 @@ def get_vessel_info(ship_name: str) -> dict:
         return default_result
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def get_milford_haven_vessels() -> pd.DataFrame:
     """
     Scrape the Milford Haven Port Authority website for arriving vessels.
@@ -412,31 +425,37 @@ def get_milford_haven_vessels() -> pd.DataFrame:
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
+        # Find the timetable table
         table = soup.find('table', class_='timetable-table')
         if not table:
+            # Try alternative table identification
             table = soup.find('table')
         
         if not table:
             st.error("Could not find vessel table on MHPA website")
             return None
         
+        # Extract table headers
         headers_row = table.find('thead')
         if headers_row:
             headers = [th.get_text(strip=True) for th in headers_row.find_all(['th', 'td'])]
         else:
+            # Try to get headers from first row
             first_row = table.find('tr')
             headers = [cell.get_text(strip=True) for cell in first_row.find_all(['th', 'td'])]
         
+        # Extract table data
         rows = table.find_all('tr')
         data = []
         
-        for row in rows[1:]:
+        for row in rows[1:]:  # Skip header row
             cells = row.find_all(['td', 'th'])
             if cells:
                 row_data = [cell.get_text(strip=True) for cell in cells]
                 if len(row_data) >= len(headers):
                     data.append(row_data[:len(headers)])
                 elif len(row_data) > 0:
+                    # Pad with empty strings if needed
                     row_data.extend([''] * (len(headers) - len(row_data)))
                     data.append(row_data)
         
@@ -444,6 +463,8 @@ def get_milford_haven_vessels() -> pd.DataFrame:
             return None
         
         df = pd.DataFrame(data, columns=headers)
+        
+        # Clean column names (remove extra whitespace)
         df.columns = [col.strip() for col in df.columns]
         
         return df
@@ -453,7 +474,7 @@ def get_milford_haven_vessels() -> pd.DataFrame:
         return None
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def get_lng_vessels_with_details() -> pd.DataFrame:
     """
     Get LNG vessels arriving at Milford Haven with additional details from VesselFinder.
@@ -461,12 +482,13 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
     Returns:
         DataFrame containing LNG vessel information with additional details
     """
+    # Get all arriving vessels
     vessels_df = get_milford_haven_vessels()
     
     if vessels_df is None or len(vessels_df) == 0:
         return None
     
-    # Identify the ship type column
+    # Identify the ship type column (may vary in naming)
     ship_type_col = None
     for col in vessels_df.columns:
         if 'type' in col.lower() or 'ship type' in col.lower():
@@ -474,6 +496,7 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
             break
     
     if ship_type_col is None:
+        # If no type column, return all vessels (user can filter)
         st.warning("Could not identify ship type column. Showing all vessels.")
         return vessels_df
     
@@ -493,16 +516,22 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
             break
     
     if ship_col is None:
-        ship_col = vessels_df.columns[0]
+        ship_col = vessels_df.columns[0]  # Default to first column
     
+    # Get unique ship names
     unique_ships = lng_df[ship_col].unique()
     
+    # Fetch vessel details (with progress indicator)
     vessel_details = []
+    
     for ship in unique_ships:
         details = get_vessel_info(ship)
         vessel_details.append(details)
     
+    # Create details DataFrame
     details_df = pd.DataFrame(vessel_details)
+    
+    # Merge with original LNG data
     final_df = lng_df.merge(details_df, left_on=ship_col, right_on='Ship', how='left')
     
     return final_df
@@ -524,7 +553,7 @@ def render_lng_vessel_table(df: pd.DataFrame):
         ''', unsafe_allow_html=True)
         return
     
-    # Identify ship name column
+    # Identify key columns
     ship_col = None
     for col in df.columns:
         if col.lower() in ['ship', 'vessel', 'name', 'vessel name', 'ship name']:
@@ -533,30 +562,22 @@ def render_lng_vessel_table(df: pd.DataFrame):
     if not ship_col:
         ship_col = df.columns[0]
     
-    # Identify "To" / destination column explicitly
-    to_col = None
+    # Identify destination/berth column
+    dest_col = None
     for col in df.columns:
-        col_lower = col.lower().strip()
-        if col_lower == 'to':
-            to_col = col
+        col_lower = col.lower()
+        if any(term in col_lower for term in ['destination', 'berth', 'terminal', 'to']):
+            dest_col = col
             break
     
-    # If no exact "To" column, check for destination/berth/terminal
-    if to_col is None:
-        for col in df.columns:
-            col_lower = col.lower()
-            if any(term in col_lower for term in ['destination', 'berth', 'terminal']):
-                to_col = col
-                break
-    
-    # Build display columns - ship name first
+    # Create display columns - start with ship name
     display_cols = [ship_col]
     
-    # Add "To" column early if found
-    if to_col and to_col not in display_cols:
-        display_cols.append(to_col)
+    # Add destination column early if found
+    if dest_col and dest_col not in display_cols:
+        display_cols.append(dest_col)
     
-    # Add schedule/origin columns
+    # Add other relevant columns if they exist
     for col in df.columns:
         col_lower = col.lower()
         if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival', 'from', 'agent']):
@@ -572,16 +593,13 @@ def render_lng_vessel_table(df: pd.DataFrame):
     # Filter to existing columns only
     display_cols = [col for col in display_cols if col in df.columns]
     
+    # Create the display DataFrame
     display_df = df[display_cols].copy()
     
     # Rename columns for better display
     rename_map = {
         'GrossTonnage': 'Gross Tonnage',
     }
-    # Rename "To" column to "Destination" for clarity if it exists
-    if to_col and to_col.lower() == 'to':
-        rename_map[to_col] = 'Destination'
-    
     display_df = display_df.rename(columns=rename_map)
     
     # Build column config dynamically
@@ -591,9 +609,13 @@ def render_lng_vessel_table(df: pd.DataFrame):
         "Flag": st.column_config.TextColumn("Flag", width="small"),
         "Deadweight": st.column_config.TextColumn("DWT", width="small"),
         "Gross Tonnage": st.column_config.TextColumn("GT", width="small"),
-        "Destination": st.column_config.TextColumn("Destination", width="medium"),
     }
     
+    # Add destination column config if present
+    if dest_col:
+        column_config[dest_col] = st.column_config.TextColumn("Destination", width="medium")
+    
+    # Display as Streamlit dataframe with styling
     st.dataframe(
         display_df,
         use_container_width=True,
@@ -621,29 +643,27 @@ def render_lng_vessel_cards(df: pd.DataFrame):
     if not ship_col:
         ship_col = df.columns[0]
     
-    # Identify "To" / destination column
-    to_col = None
+    # Identify destination column
+    dest_col = None
     for col in df.columns:
-        col_lower = col.lower().strip()
-        if col_lower == 'to':
-            to_col = col
+        col_lower = col.lower()
+        if any(term in col_lower for term in ['destination', 'berth', 'terminal', 'to']):
+            dest_col = col
             break
-    if to_col is None:
-        for col in df.columns:
-            col_lower = col.lower()
-            if any(term in col_lower for term in ['destination', 'berth', 'terminal']):
-                to_col = col
-                break
     
+    # Create cards for each vessel using Streamlit native components
     for idx, row in df.iterrows():
         ship_name = row[ship_col]
         
+        # Use Streamlit container with border for card effect
         with st.container(border=True):
             st.subheader(ship_name)
             
+            # Create two columns for vessel details
             col1, col2 = st.columns(2)
             
             with col1:
+                # Vessel identification details
                 if pd.notna(row.get('IMO')) and row.get('IMO'):
                     st.markdown(f"**IMO:** {row.get('IMO')}")
                 if pd.notna(row.get('MMSI')) and row.get('MMSI'):
@@ -656,9 +676,9 @@ def render_lng_vessel_cards(df: pd.DataFrame):
                     st.markdown(f"**Gross Tonnage:** {row.get('GrossTonnage')}")
             
             with col2:
-                # Show destination (To column)
-                if to_col and pd.notna(row.get(to_col)) and row.get(to_col):
-                    st.markdown(f"**Destination:** {row.get(to_col)}")
+                # Schedule and location details
+                if dest_col and pd.notna(row.get(dest_col)) and row.get(dest_col):
+                    st.markdown(f"**Destination:** {row.get(dest_col)}")
                 
                 # Add arrival/schedule info from other columns
                 for col in df.columns:
@@ -670,6 +690,7 @@ def render_lng_vessel_cards(df: pd.DataFrame):
                         if pd.notna(row.get(col)) and row.get(col):
                             st.markdown(f"**From:** {row.get(col)}")
             
+            # Add VesselFinder link if available
             vf_url = row.get('VesselFinderURL')
             if pd.notna(vf_url) and vf_url:
                 st.markdown(f"[View on VesselFinder]({vf_url})")
@@ -681,7 +702,6 @@ def render_lng_vessel_cards(df: pd.DataFrame):
 
 @st.cache_data(ttl=120)
 def scrape_gassco_data():
-    """Scrape GASSCO REMIT data for field and terminal outages."""
     try:
         session = requests.Session()
         session.get("https://umm.gassco.no/", timeout=10)
@@ -694,12 +714,11 @@ def scrape_gassco_data():
         terminal_df = parse_gassco_table(msg_tables[1]) if len(msg_tables) > 1 else None
         
         return fields_df, terminal_df
-    except Exception:
+    except:
         return None, None
 
 
 def parse_gassco_table(table):
-    """Parse GASSCO table data into DataFrame."""
     rows = table.find_all('tr', id=True)
     data = []
     
@@ -725,7 +744,6 @@ def parse_gassco_table(table):
 
 
 def process_remit_data(df):
-    """Process REMIT data - filter active events within 14 days."""
     if df is None or len(df) == 0:
         return None
     
@@ -755,7 +773,6 @@ def process_remit_data(df):
 
 @st.cache_data(ttl=120)
 def get_gas_data(request_type):
-    """Fetch gas data from National Gas API."""
     try:
         url = "https://data.nationalgas.com/api/gas-system-status-graph"
         response = requests.post(url, json={"request": request_type}, 
@@ -767,7 +784,6 @@ def get_gas_data(request_type):
 
 
 def get_chart_layout(title="", height=500):
-    """Get standardised Plotly chart layout."""
     return dict(
         title=dict(text=title, font=dict(size=18, color='#1e293b')),
         plot_bgcolor='white',
@@ -797,7 +813,6 @@ def get_chart_layout(title="", height=500):
 
 
 def create_gassco_timeline_plot(df, title_prefix):
-    """Create timeline plot for GASSCO outages."""
     colors = {'Planned': '#7fcdcd', 'Unplanned': '#f8b4b4'}
     fig = go.Figure()
     shown = set()
@@ -840,7 +855,6 @@ def create_gassco_timeline_plot(df, title_prefix):
 
 
 def create_gassco_cumulative_plot(df, title_prefix):
-    """Create cumulative unavailability plot for GASSCO outages."""
     events = []
     for _, row in df.iterrows():
         events.append({'time': row['Event Start'], 'delta': -row['Unavailable Capacity']})
@@ -869,7 +883,6 @@ def create_gassco_cumulative_plot(df, title_prefix):
 
 
 def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
-    """Create flow rate chart with average and current markers."""
     if column_name not in df.columns:
         return None, 0, 0, 0
     
@@ -913,7 +926,6 @@ def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
 
 
 def render_metric_cards(metrics):
-    """Render metric cards in columns."""
     cols = st.columns(len(metrics))
     for col, (label, value, unit) in zip(cols, metrics):
         with col:
@@ -926,7 +938,6 @@ def render_metric_cards(metrics):
 
 
 def render_nomination_table(demand_df, supply_df):
-    """Render the nomination summary table."""
     demand_cols = ["LDZ Offtake", "Power Station", "Industrial", "Storage Injection", "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]
     supply_cols = ["Storage Withdrawal", "LNG", "Bacton BBL Import", "Bacton INT Import", "Beach (UKCS/Norway)"]
     
@@ -982,7 +993,6 @@ def render_nomination_table(demand_df, supply_df):
 
 
 def render_gassco_table(df):
-    """Render GASSCO outages table."""
     display_df = df.copy()
     for col in ['Publication date/time', 'Event Start', 'Event Stop']:
         if col in display_df.columns:
@@ -1006,7 +1016,7 @@ def main():
         st.markdown("### Data Source")
         data_source = st.radio(
             "Source", 
-            ["National Gas", "GASSCO", "Milford Haven LNG"], 
+            ["National Gas", "GASSCO", "Milford Haven LNG Vessels"], 
             label_visibility="collapsed", 
             key="ds"
         )
@@ -1030,11 +1040,11 @@ def main():
             st.markdown("### Views")
             gassco_view = st.radio("View", ["Field Outages", "Terminal Outages"], label_visibility="collapsed", key="gv")
         
-        elif data_source == "Milford Haven LNG":
+        elif data_source == "Milford Haven LNG Vessels":
             st.markdown("### View Options")
             lng_view = st.radio(
                 "Display", 
-                ["Table View", "Card View"], 
+                ["Table View", "Card View", "All Arriving Vessels"], 
                 label_visibility="collapsed", 
                 key="lngv"
             )
@@ -1046,7 +1056,7 @@ def main():
             st.cache_data.clear()
             st.rerun()
         
-        st.markdown(f'<div style="text-align:center;padding:1rem 0;font-size:0.8rem;color:#718096;">Last updated:<br>{datetime.now().strftime("%H:%M:%S %d/%m/%Y")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center;padding:1rem 0;font-size:0.8rem;color:#718096;">Last updated:<br>{datetime.now().strftime("%H:%M:%S")}</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="dashboard-header"><h1>UK Gas Market Dashboard</h1><p>Real-time monitoring of UK gas supply, demand, and infrastructure status</p></div>', unsafe_allow_html=True)
     
@@ -1079,7 +1089,7 @@ def main():
             supply_df['interval_seconds'] = (supply_df['next_time'] - supply_df['Timestamp']).dt.total_seconds()
             
             if ng_view == "Table":
-                st.markdown('<div class="section-header"> UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-header">📋 UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
                 st.markdown('<div class="info-box"><strong>Flow Table</strong> shows the current gas day flows. All values in mcm.</div>', unsafe_allow_html=True)
                 bal = render_nomination_table(demand_df, supply_df)
                 
@@ -1108,7 +1118,7 @@ def main():
                         st.plotly_chart(fig, use_container_width=True, theme=None)
             
             elif ng_view == "Demand":
-                st.markdown(f'<div class="section-header"> Demand - {demand_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header">Demand - {demand_cat}</div>', unsafe_allow_html=True)
                 col_map = {"CCGT": "Power Station", "Storage Injection": "Storage Injection", "LDZ": "LDZ Offtake", "Industrial": "Industrial", "IC Export": None}
                 
                 if demand_cat == "IC Export":
@@ -1123,13 +1133,13 @@ def main():
                         render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
                         st.plotly_chart(fig, use_container_width=True, theme=None)
         else:
-            st.error("⚠️ Unable to fetch National Gas data. Please try refreshing.")
+            st.error("⚠️ Unable to fetch National Gas data.")
     
     # ========================================================================
     # GASSCO VIEW
     # ========================================================================
     elif data_source == "GASSCO":
-        st.markdown(f'<div class="section-header">🇳🇴 GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header"> GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
         with st.spinner("Fetching GASSCO data..."):
             fields_df, terminal_df = scrape_gassco_data()
@@ -1142,7 +1152,7 @@ def main():
                 st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True, theme=None)
                 st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True, theme=None)
-                st.markdown("#### Outage Details")
+                st.markdown("#### Outages Details")
                 render_gassco_table(fields_proc)
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Field Outages</h3><p>No active field outages within 14 days.</p></div>', unsafe_allow_html=True)
@@ -1151,7 +1161,7 @@ def main():
                 st.markdown(f'<div class="info-box"><strong>{len(terminal_proc)} active terminal outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
                 st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
-                st.markdown("#### Outage Details")
+                st.markdown("#### Outages Details")
                 render_gassco_table(terminal_proc)
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Terminal Outages</h3><p>No active terminal outages within 14 days.</p></div>', unsafe_allow_html=True)
@@ -1159,57 +1169,75 @@ def main():
     # ========================================================================
     # LNG VESSELS VIEW
     # ========================================================================
-    elif data_source == "Milford Haven LNG":
-        st.markdown('<div class="section-header"> LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
+    elif data_source == "LNG Vessels":
+        st.markdown('<div class="section-header">LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
         
         st.markdown('''
         <div class="info-box">
-            <strong>LNG Vessel Tracking</strong> — Shows confirmed LNG tankers arriving at Milford Haven 
-            (South Hook & Dragon terminals) with vessel details from VesselFinder.
+            <strong>LNG Vessel Tracking</strong> shows confirmed LNG tankers arriving at Milford Haven port 
+            with additional vessel details from VesselFinder where available.
         </div>
         ''', unsafe_allow_html=True)
         
-        with st.spinner("Fetching LNG vessel data..."):
-            lng_df = get_lng_vessels_with_details()
-        
-        if lng_df is not None and len(lng_df) > 0:
-            # Summary metrics
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("LNG Vessels Expected", len(lng_df))
-            with col2:
-                found_count = len(lng_df[lng_df.get('Status', '') == 'Found']) if 'Status' in lng_df.columns else 0
-                st.metric("Vessel Details Found", found_count)
-            with col3:
-                unique_flags = lng_df['Flag'].dropna().nunique() if 'Flag' in lng_df.columns else 0
-                st.metric("Unique Flags", unique_flags)
+        if lng_view == "All Arriving Vessels":
+            # Show all arriving vessels, not just LNG
+            with st.spinner("Fetching vessel data from Milford Haven Port Authority..."):
+                all_vessels_df = get_milford_haven_vessels()
             
-            st.markdown("---")
-            
-            if lng_view == "Table View":
-                st.markdown("#### LNG Vessel Arrivals")
-                render_lng_vessel_table(lng_df)
-                
-                csv = lng_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=csv,
-                    file_name=f"lng_vessels_milford_haven_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
-            
-            elif lng_view == "Card View":
-                st.markdown("#### LNG Vessel Details")
-                render_lng_vessel_cards(lng_df)
+            if all_vessels_df is not None and len(all_vessels_df) > 0:
+                st.markdown(f"**{len(all_vessels_df)} vessel(s)** scheduled to arrive")
+                st.dataframe(all_vessels_df, use_container_width=True, hide_index=True)
+            else:
+                st.markdown('''
+                <div class="no-data">
+                    <h3>No Vessel Data Available</h3>
+                    <p>Unable to fetch vessel arrival data from MHPA.</p>
+                </div>
+                ''', unsafe_allow_html=True)
         
         else:
-            st.markdown('''
-            <div class="no-data">
-                <h3>No LNG Vessels Found</h3>
-                <p>No LNG tankers are currently scheduled to arrive at Milford Haven.</p>
-                <p style="font-size: 0.85rem; margin-top: 1rem;">This may be due to no scheduled arrivals or a temporary issue fetching data from MHPA.</p>
-            </div>
-            ''', unsafe_allow_html=True)
+            # Show LNG vessels with details
+            with st.spinner("Fetching LNG vessel data and details..."):
+                lng_df = get_lng_vessels_with_details()
+            
+            if lng_df is not None and len(lng_df) > 0:
+                # Summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("LNG Vessels", len(lng_df))
+                with col2:
+                    found_count = len(lng_df[lng_df.get('Status', '') == 'Found']) if 'Status' in lng_df.columns else 0
+                    st.metric("Details Found", found_count)
+                with col3:
+                    unique_flags = lng_df['Flag'].dropna().nunique() if 'Flag' in lng_df.columns else 0
+                    st.metric("Unique Flags", unique_flags)
+                
+                st.markdown("---")
+                
+                if lng_view == "Table View":
+                    st.markdown("#### LNG Vessel Arrivals")
+                    render_lng_vessel_table(lng_df)
+                    
+                    # Option to download data
+                    csv = lng_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download CSV",
+                        data=csv,
+                        file_name=f"lng_vessels_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
+                
+                elif lng_view == "Card View":
+                    st.markdown("#### LNG Vessel Details")
+                    render_lng_vessel_cards(lng_df)
+            
+            else:
+                st.markdown('''
+                <div class="no-data">
+                    <h3>No LNG Vessels Found</h3>
+                    <p>No LNG tankers are currently scheduled to arrive at Milford Haven.</p>
+                </div>
+                ''', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
