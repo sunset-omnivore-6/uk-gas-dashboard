@@ -34,7 +34,7 @@ st.markdown("""
     [data-testid="stSidebar"] h1, 
     [data-testid="stSidebar"] h2, 
     [data-testid="stSidebar"] h3 {
-        color: #00d4ff !important;
+        color: #0097a9 !important;
     }
     
     [data-testid="stSidebar"] p,
