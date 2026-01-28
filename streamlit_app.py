@@ -1191,7 +1191,7 @@ def main():
     # LNG VESSELS VIEW
     # ========================================================================
     elif data_source == "Milford Haven LNG":
-        st.markdown('<div class="section-header">🚢 LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"> LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
         
         st.markdown('''
         <div class="info-box">
