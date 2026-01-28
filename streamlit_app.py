@@ -1022,7 +1022,7 @@ def render_gassco_table(df):
 
 def main():
     with st.sidebar:
-        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#00d4ff !important;"> UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#0097a9 !important;"> UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#a0aec0 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
         st.markdown("---")
         
         st.markdown("### Data Source")
@@ -1045,7 +1045,7 @@ def main():
                 supply_cat = st.radio("Cat", ["LNG", "Storage Withdrawal", "Beach Terminal", "IC Import"], label_visibility="collapsed", key="sc")
             elif ng_view == "Demand":
                 st.markdown("---")
-                st.markdown("##### <span style='color:#FFFF00;'>Supply Categories</span>", unsafe_allow_html=True)
+                st.markdown("##### <span style='color:#FFFF00;'>Demand Categories</span>", unsafe_allow_html=True)
                 demand_cat = st.radio("Cat", ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"], label_visibility="collapsed", key="dc")
         
         elif data_source == "GASSCO":
