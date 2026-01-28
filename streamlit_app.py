@@ -17,7 +17,7 @@ import plotly.graph_objects as go
 
 # Page configuration
 st.set_page_config(
-    page_title="UK Gas Market Dashboard",
+    page_title="UK Gas Mrket Dashboard",
     page_icon="🛠️",
     layout="wide",
     initial_sidebar_state="expanded"
