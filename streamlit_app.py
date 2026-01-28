@@ -588,7 +588,7 @@ def main():
                     st.metric("Data Points", str(n))
             
             elif ng_view == "Supply":
-                st.markdown(f'<div class="section-header" Supply - {supply_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header"> Supply - {supply_cat}</div>', unsafe_allow_html=True)
                 col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
                 
                 if supply_cat == "IC Import":
