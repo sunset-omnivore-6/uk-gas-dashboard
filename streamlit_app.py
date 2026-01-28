@@ -13,7 +13,7 @@ import time
 # Page configuration
 st.set_page_config(
     page_title="UK Gas Market Dashboard",
-    page_icon="🔥",
+    page_icon="🛠️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -1110,7 +1110,7 @@ def main():
             supply_df['interval_seconds'] = (supply_df['next_time'] - supply_df['Timestamp']).dt.total_seconds()
             
             if ng_view == "Table":
-                st.markdown('<div class="section-header">📋 UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-header"> UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
                 st.markdown('<div class="info-box"><strong>Flow Table</strong> shows the current gas day flows. All values in mcm.</div>', unsafe_allow_html=True)
                 bal = render_nomination_table(demand_df, supply_df)
                 
@@ -1123,7 +1123,7 @@ def main():
                     st.metric("Data Points", str(n))
             
             elif ng_view == "Supply":
-                st.markdown(f'<div class="section-header">📈 Supply - {supply_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header"> Supply - {supply_cat}</div>', unsafe_allow_html=True)
                 col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
                 
                 if supply_cat == "IC Import":
@@ -1139,7 +1139,7 @@ def main():
                         st.plotly_chart(fig, use_container_width=True, theme=None)
             
             elif ng_view == "Demand":
-                st.markdown(f'<div class="section-header">📉 Demand - {demand_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header"> Demand - {demand_cat}</div>', unsafe_allow_html=True)
                 col_map = {"CCGT": "Power Station", "Storage Injection": "Storage Injection", "LDZ": "LDZ Offtake", "Industrial": "Industrial", "IC Export": None}
                 
                 if demand_cat == "IC Export":
