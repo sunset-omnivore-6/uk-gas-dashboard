@@ -1041,7 +1041,7 @@ def main():
             
             if ng_view == "Supply":
                 st.markdown("---")
-                st.markdown("##### Supply Categories")
+                st.markdown("##### <span style='color:#DBDB2E;'>Supply Categories</span>", unsafe_allow_html=True)
                 supply_cat = st.radio("Cat", ["LNG", "Storage Withdrawal", "Beach Terminal", "IC Import"], label_visibility="collapsed", key="sc")
             elif ng_view == "Demand":
                 st.markdown("---")
@@ -1061,7 +1061,7 @@ def main():
                 key="lngv"
             )
             st.markdown("---")
-            st.markdown('<div class="info-box" style="background:#1a1a2e;border-left-color:#00d4ff;"><small style="color:#a0aec0;">Data sourced from Milford Haven Port Authority with vessel details from VesselFinder.</small></div>', unsafe_allow_html=True)
+            st.markdown('<div class="info-box" style="background:#1a1a2e;border-left-color:#0097a9;"><small style="color:#0097a9;">Data sourced from Milford Haven Port Authority with vessel details from VesselFinder.</small></div>', unsafe_allow_html=True)
         
         st.markdown("---")
         if st.button("🔄 Refresh Data", use_container_width=True):
