@@ -556,7 +556,7 @@ def render_lng_vessel_table(df: pd.DataFrame):
     if df is None or len(df) == 0:
         st.markdown('''
         <div class="no-data">
-            <h3>🚢 No LNG Vessels Found</h3>
+            <h3>No LNG Vessels Found</h3>
             <p>No LNG tankers are currently scheduled to arrive at Milford Haven.</p>
         </div>
         ''', unsafe_allow_html=True)
@@ -571,13 +571,25 @@ def render_lng_vessel_table(df: pd.DataFrame):
     if not ship_col:
         ship_col = df.columns[0]
     
-    # Create display columns
+    # Identify destination/berth column
+    dest_col = None
+    for col in df.columns:
+        col_lower = col.lower()
+        if any(term in col_lower for term in ['destination', 'berth', 'terminal', 'to']):
+            dest_col = col
+            break
+    
+    # Create display columns - start with ship name
     display_cols = [ship_col]
+    
+    # Add destination column early if found
+    if dest_col and dest_col not in display_cols:
+        display_cols.append(dest_col)
     
     # Add other relevant columns if they exist
     for col in df.columns:
         col_lower = col.lower()
-        if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival', 'berth', 'from', 'agent']):
+        if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival', 'from', 'agent']):
             if col not in display_cols:
                 display_cols.append(col)
     
@@ -599,24 +611,31 @@ def render_lng_vessel_table(df: pd.DataFrame):
     }
     display_df = display_df.rename(columns=rename_map)
     
+    # Build column config dynamically
+    column_config = {
+        ship_col: st.column_config.TextColumn("Vessel Name", width="medium"),
+        "IMO": st.column_config.TextColumn("IMO Number", width="small"),
+        "Flag": st.column_config.TextColumn("Flag", width="small"),
+        "Deadweight": st.column_config.TextColumn("DWT", width="small"),
+        "Gross Tonnage": st.column_config.TextColumn("GT", width="small"),
+    }
+    
+    # Add destination column config if present
+    if dest_col:
+        column_config[dest_col] = st.column_config.TextColumn("Destination", width="medium")
+    
     # Display as Streamlit dataframe with styling
     st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            ship_col: st.column_config.TextColumn("Vessel Name", width="medium"),
-            "IMO": st.column_config.TextColumn("IMO Number", width="small"),
-            "Flag": st.column_config.TextColumn("Flag", width="small"),
-            "Deadweight": st.column_config.TextColumn("DWT", width="small"),
-            "Gross Tonnage": st.column_config.TextColumn("GT", width="small"),
-        }
+        column_config=column_config
     )
 
 
 def render_lng_vessel_cards(df: pd.DataFrame):
     """
-    Render LNG vessel information as cards.
+    Render LNG vessel information as cards using Streamlit native components.
     
     Args:
         df: DataFrame containing vessel information
@@ -633,53 +652,57 @@ def render_lng_vessel_cards(df: pd.DataFrame):
     if not ship_col:
         ship_col = df.columns[0]
     
-    # Create cards for each vessel
-    for _, row in df.iterrows():
+    # Identify destination column
+    dest_col = None
+    for col in df.columns:
+        col_lower = col.lower()
+        if any(term in col_lower for term in ['destination', 'berth', 'terminal', 'to']):
+            dest_col = col
+            break
+    
+    # Create cards for each vessel using Streamlit native components
+    for idx, row in df.iterrows():
         ship_name = row[ship_col]
         
-        # Build card HTML
-        card_html = f'''
-        <div class="vessel-card">
-            <h4>🚢 {ship_name}</h4>
-        '''
-        
-        # Add available details
-        details = [
-            ('IMO', row.get('IMO')),
-            ('MMSI', row.get('MMSI')),
-            ('Flag', row.get('Flag')),
-            ('Deadweight', row.get('Deadweight')),
-            ('Gross Tonnage', row.get('GrossTonnage')),
-        ]
-        
-        # Add arrival/schedule info
-        for col in df.columns:
-            col_lower = col.lower()
-            if any(term in col_lower for term in ['date', 'eta', 'arrival', 'berth', 'from']):
-                if col not in [ship_col] and pd.notna(row.get(col)):
-                    details.append((col, row.get(col)))
-        
-        for label, value in details:
-            if pd.notna(value) and value:
-                card_html += f'''
-                <div class="vessel-detail">
-                    <span class="label">{label}</span>
-                    <span class="value">{value}</span>
-                </div>
-                '''
-        
-        # Add VesselFinder link if available
-        vf_url = row.get('VesselFinderURL')
-        if pd.notna(vf_url) and vf_url:
-            card_html += f'''
-            <div class="vessel-detail">
-                <span class="label">More Info</span>
-                <span class="value"><a href="{vf_url}" target="_blank">View on VesselFinder</a></span>
-            </div>
-            '''
-        
-        card_html += '</div>'
-        st.markdown(card_html, unsafe_allow_html=True)
+        # Use Streamlit container with border for card effect
+        with st.container(border=True):
+            st.subheader(ship_name)
+            
+            # Create two columns for vessel details
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Vessel identification details
+                if pd.notna(row.get('IMO')) and row.get('IMO'):
+                    st.markdown(f"**IMO:** {row.get('IMO')}")
+                if pd.notna(row.get('MMSI')) and row.get('MMSI'):
+                    st.markdown(f"**MMSI:** {row.get('MMSI')}")
+                if pd.notna(row.get('Flag')) and row.get('Flag'):
+                    st.markdown(f"**Flag:** {row.get('Flag')}")
+                if pd.notna(row.get('Deadweight')) and row.get('Deadweight'):
+                    st.markdown(f"**Deadweight:** {row.get('Deadweight')}")
+                if pd.notna(row.get('GrossTonnage')) and row.get('GrossTonnage'):
+                    st.markdown(f"**Gross Tonnage:** {row.get('GrossTonnage')}")
+            
+            with col2:
+                # Schedule and location details
+                if dest_col and pd.notna(row.get(dest_col)) and row.get(dest_col):
+                    st.markdown(f"**Destination:** {row.get(dest_col)}")
+                
+                # Add arrival/schedule info from other columns
+                for col in df.columns:
+                    col_lower = col.lower()
+                    if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival']):
+                        if col != ship_col and pd.notna(row.get(col)) and row.get(col):
+                            st.markdown(f"**{col}:** {row.get(col)}")
+                    elif 'from' in col_lower:
+                        if pd.notna(row.get(col)) and row.get(col):
+                            st.markdown(f"**From:** {row.get(col)}")
+            
+            # Add VesselFinder link if available
+            vf_url = row.get('VesselFinderURL')
+            if pd.notna(vf_url) and vf_url:
+                st.markdown(f"[View on VesselFinder]({vf_url})")
 
 
 # ============================================================================
@@ -1156,7 +1179,7 @@ def main():
     # LNG VESSELS VIEW
     # ========================================================================
     elif data_source == "LNG Vessels":
-        st.markdown('<div class="section-header">🚢 LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
         
         st.markdown('''
         <div class="info-box">
@@ -1176,7 +1199,7 @@ def main():
             else:
                 st.markdown('''
                 <div class="no-data">
-                    <h3>🚢 No Vessel Data Available</h3>
+                    <h3>No Vessel Data Available</h3>
                     <p>Unable to fetch vessel arrival data from MHPA.</p>
                 </div>
                 ''', unsafe_allow_html=True)
@@ -1220,7 +1243,7 @@ def main():
             else:
                 st.markdown('''
                 <div class="no-data">
-                    <h3>🚢 No LNG Vessels Found</h3>
+                    <h3>No LNG Vessels Found</h3>
                     <p>No LNG tankers are currently scheduled to arrive at Milford Haven.</p>
                 </div>
                 ''', unsafe_allow_html=True)
