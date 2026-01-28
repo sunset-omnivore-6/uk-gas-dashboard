@@ -125,15 +125,6 @@ st.markdown("""
     .nomination-table .supply-total { background-color: #0072B2; color: white; font-weight: 600; }
     .nomination-table .balance { background-color: #CC79A7; color: white; font-weight: 600; }
     
-    .info-box {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border-left: 4px solid #0097a9;
-        padding: 1rem 1.5rem;
-        border-radius: 0 8px 8px 0;
-        margin: 1rem 0;
-        color: #333;
-    }
-    
     .no-data {
         text-align: center;
         padding: 3rem;
@@ -1113,14 +1104,6 @@ def main():
                 st.markdown('<div class="section-header"> UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
                 st.markdown('<div class="info-box"><strong>Flow Table</strong> shows the current gas day flows. All values in mcm.</div>', unsafe_allow_html=True)
                 bal = render_nomination_table(demand_df, supply_df)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Current Balance", f"{bal['Inst']:.1f} mcm", delta="Surplus" if bal['Inst'] >= 0 else "Deficit")
-                with col2:
-                    st.metric("Gas Day Progress", f"{((datetime.now() - start).total_seconds() / 86400 * 100):.0f}%")
-                with col3:
-                    st.metric("Data Points", str(n))
             
             elif ng_view == "Supply":
                 st.markdown(f'<div class="section-header"> Supply - {supply_cat}</div>', unsafe_allow_html=True)
