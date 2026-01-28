@@ -1160,7 +1160,7 @@ def main():
     # GASSCO VIEW
     # ========================================================================
     elif data_source == "GASSCO":
-        st.markdown(f'<div class="section-header"GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header"> GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
         with st.spinner("Fetching GASSCO data..."):
             fields_df, terminal_df = scrape_gassco_data()
