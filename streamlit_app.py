@@ -847,41 +847,41 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
     avg_actual = actual_plot['wind_actual_mw'].mean() if len(actual_plot) > 0 else 0
     avg_annual = 9500  # Approximate annual average UK wind generation (MW)
     
-    # Layer 1: Forecast (full day - grey dashed, plotted first as background)
+    # Layer 1: Forecast (full day - orange dashed, plotted first as background)
     if len(forecast_plot) > 0:
         fig.add_trace(go.Scatter(
             x=forecast_plot['timestamp'],
             y=forecast_plot['wind_forecast_mw'],
             mode='lines',
-            line=dict(color='#94a3b8', width=2, dash='dash'),
-            name='Forecast',
+            line=dict(color='#E69F00', width=2.5, dash='dash'),
+            name='Day-ahead Forecast',
             hovertemplate='<b>Forecast:</b> %{y:,.0f} MW<extra></extra>'
         ))
     
-    # Layer 2: Actual wind generation (solid blue line)
+    # Layer 2: Actual wind generation (solid blue line, thicker)
     if len(actual_plot) > 0:
         fig.add_trace(go.Scatter(
             x=actual_plot['timestamp'],
             y=actual_plot['wind_actual_mw'],
             mode='lines',
-            line=dict(color='#2E86AB', width=3),
-            name='Actual',
+            line=dict(color='#2E86AB', width=3.5),
+            name='Actual Generation',
             hovertemplate='<b>Actual:</b> %{y:,.0f} MW<extra></extra>'
         ))
     
-    # Layer 3: Average today line
+    # Layer 3: Average today line (green)
     if avg_actual > 0:
         fig.add_hline(
             y=avg_actual,
             line_dash='dash',
-            line_color='#2E86AB',
+            line_color='#059669',
             line_width=1.5,
-            annotation_text=f"Avg today: {avg_actual/1000:.1f} GW",
+            annotation_text=f"Avg actual: {avg_actual/1000:.1f} GW",
             annotation_position='right',
-            annotation=dict(font=dict(size=11, color='#2E86AB'))
+            annotation=dict(font=dict(size=11, color='#059669'))
         )
     
-    # Layer 4: Annual average reference line
+    # Layer 4: Annual average reference line (grey dotted)
     fig.add_hline(
         y=avg_annual,
         line_dash='dot',
@@ -915,7 +915,7 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
     
     fig.update_layout(
         title=dict(
-            text=f'<b>UK Wind Generation: Actual vs Forecast</b><br><sub>Blue = Actual | Grey dashed = Day-ahead Forecast | {today_str} gas day</sub>',
+            text=f'<b>UK Wind Generation: Actual vs Forecast</b><br><sub>Blue = Actual | Orange dashed = Day-ahead Forecast | {today_str} gas day</sub>',
             font=dict(size=16, color='#1e293b')
         ),
         plot_bgcolor='white',
@@ -946,14 +946,14 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
             rangemode='tozero'
         ),
         legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='left',
-            x=0,
+            orientation='v',
+            yanchor='top',
+            y=0.99,
+            xanchor='right',
+            x=0.99,
             bgcolor='rgba(255, 255, 255, 0.95)',
             bordercolor='#1e293b',
-            borderwidth=1,
+            borderwidth=2,
             font=dict(size=12, color='#1e293b')
         )
     )
@@ -1784,7 +1784,7 @@ def main():
             st.markdown('''
             <div class="info-box">
                 <strong>Wind Generation Profile</strong> — Shows actual wind generation (blue) against the 
-                day-ahead forecast (grey dashed). Compare how wind is performing relative to expectations.
+                day-ahead forecast (orange dashed). Compare how wind is performing relative to expectations.
             </div>
             ''', unsafe_allow_html=True)
             
@@ -1795,6 +1795,17 @@ def main():
             forecast_wind = wind_data['forecast_wind']
             gas_day_start = wind_data['gas_day_start']
             gas_day_end = wind_data['gas_day_end']
+            
+            # Filter forecast to same time period as actual for fair comparison
+            now = datetime.utcnow()
+            if len(forecast_wind) > 0:
+                # Forecast up to current time (for metrics comparison)
+                forecast_to_now = forecast_wind[
+                    (forecast_wind['timestamp'] >= gas_day_start) &
+                    (forecast_wind['timestamp'] <= now)
+                ].copy()
+            else:
+                forecast_to_now = pd.DataFrame()
             
             # Display metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -1809,23 +1820,24 @@ def main():
             with col2:
                 if len(actual_wind) > 0:
                     avg_wind = actual_wind['wind_actual_mw'].mean()
-                    st.metric("Avg Today", f"{avg_wind:,.0f} MW")
+                    st.metric("Avg Actual", f"{avg_wind:,.0f} MW")
                 else:
-                    st.metric("Avg Today", "N/A")
+                    st.metric("Avg Actual", "N/A")
             
             with col3:
                 if len(actual_wind) > 0:
                     max_wind = actual_wind['wind_actual_mw'].max()
-                    st.metric("Peak Today", f"{max_wind:,.0f} MW")
+                    st.metric("Peak Actual", f"{max_wind:,.0f} MW")
                 else:
-                    st.metric("Peak Today", "N/A")
+                    st.metric("Peak Actual", "N/A")
             
             with col4:
-                if len(forecast_wind) > 0:
-                    avg_forecast = forecast_wind['wind_forecast_mw'].mean()
-                    st.metric("Avg Forecast", f"{avg_forecast:,.0f} MW")
+                # Show forecast average for same period as actual (fair comparison)
+                if len(forecast_to_now) > 0:
+                    avg_forecast = forecast_to_now['wind_forecast_mw'].mean()
+                    st.metric("Avg Forecast (same period)", f"{avg_forecast:,.0f} MW")
                 else:
-                    st.metric("Avg Forecast", "N/A")
+                    st.metric("Avg Forecast (same period)", "N/A")
             
             # Create and display the plot
             fig = create_wind_generation_plot(actual_wind, forecast_wind, gas_day_start, gas_day_end)
