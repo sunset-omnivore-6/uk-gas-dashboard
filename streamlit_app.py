@@ -15,56 +15,108 @@ st.set_page_config(
     page_title="UK Energy Market Dashboard",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Cascading style sheet
 st.markdown("""
 <style>
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1400px;
-    }
-    
+    /* Hide sidebar completely */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+        display: none;
     }
     
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3 {
-        color: #0097a9 !important;
+    .main .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+        max-width: 1600px;
     }
     
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label {
-        color: #e0e0e0 !important;
-    }
-    
+    /* Header styling */
     .dashboard-header {
-        background: linear-gradient(135deg, #0097a9 0%, #005f6b 100%);
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
         padding: 1.5rem 2rem;
         border-radius: 12px;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
         color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
     
     .dashboard-header h1 {
         margin: 0;
-        font-size: 2rem;
+        font-size: 1.8rem;
         font-weight: 700;
-        color: white !important;
+        color: #0097a9 !important;
     }
     
     .dashboard-header p {
-        margin: 0.5rem 0 0 0;
-        opacity: 0.9;
-        font-size: 0.95rem;
-        color: white !important;
+        margin: 0.3rem 0 0 0;
+        opacity: 0.8;
+        font-size: 0.9rem;
+        color: #e0e0e0 !important;
     }
     
+    .header-time {
+        text-align: right;
+        font-size: 0.85rem;
+        color: #94a3b8;
+    }
+    
+    /* Navigation tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #f8fafc;
+        padding: 0.5rem;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        padding: 0 24px;
+        background-color: white;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        font-weight: 500;
+        color: #334155;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #0097a9 0%, #006670 100%) !important;
+        color: white !important;
+        border: none !important;
+    }
+    
+    .stTabs [data-baseweb="tab-panel"] {
+        padding-top: 1rem;
+    }
+    
+    /* Sub-navigation styling */
+    .sub-nav {
+        background: #f8fafc;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        border: 1px solid #e2e8f0;
+    }
+    
+    .sub-nav-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #64748b;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Metric cards */
     .metric-card {
         background: linear-gradient(135deg, #0097a9 0%, #006670 100%);
         padding: 1.5rem;
@@ -86,16 +138,18 @@ st.markdown("""
         font-weight: 700;
     }
     
+    /* Section headers */
     .section-header {
         background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%);
         padding: 1rem 1.5rem;
         border-radius: 8px;
-        margin: 1.5rem 0 1rem 0;
+        margin: 1rem 0;
         color: white;
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         font-weight: 600;
     }
     
+    /* Tables */
     .nomination-table {
         width: 100%;
         border-collapse: collapse;
@@ -125,6 +179,7 @@ st.markdown("""
     .nomination-table .supply-total { background-color: #0072B2; color: white; font-weight: 600; }
     .nomination-table .balance { background-color: #CC79A7; color: white; font-weight: 600; }
     
+    /* Info box */
     .info-box {
         background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
         border-left: 4px solid #0097a9;
@@ -134,6 +189,7 @@ st.markdown("""
         color: #333;
     }
     
+    /* No data state */
     .no-data {
         text-align: center;
         padding: 3rem;
@@ -148,6 +204,7 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
+    /* Legend */
     .legend-container {
         display: flex;
         flex-wrap: wrap;
@@ -173,6 +230,7 @@ st.markdown("""
         border: 1px solid rgba(0,0,0,0.1);
     }
     
+    /* Vessel table */
     .vessel-table {
         width: 100%;
         border-collapse: collapse;
@@ -201,18 +259,26 @@ st.markdown("""
         background-color: #f0f9ff;
     }
     
+    /* Hide Streamlit elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
+    /* Button styling */
     .stButton > button {
         background: linear-gradient(135deg, #0097a9 0%, #006670 100%);
         color: white;
         border: none;
         border-radius: 8px;
-        padding: 0.75rem 1.5rem;
+        padding: 0.5rem 1rem;
         font-weight: 600;
+        font-size: 0.85rem;
     }
     
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #00a8bc 0%, #007580 100%);
+    }
+    
+    /* Loading container */
     .loading-container {
         background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
         border: 1px solid #0097a9;
@@ -227,28 +293,38 @@ st.markdown("""
         margin-bottom: 1rem;
     }
     
-    .loading-status {
+    /* Radio button styling for sub-navigation */
+    .stRadio > div {
         display: flex;
-        justify-content: space-around;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-    
-    .loading-item {
-        display: flex;
-        align-items: center;
+        flex-direction: row;
         gap: 0.5rem;
-        font-size: 0.9rem;
-        color: #333;
+        flex-wrap: wrap;
     }
     
-    .loading-item.complete {
-        color: #059669;
+    .stRadio > div > label {
+        background: white;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+        cursor: pointer;
+        transition: all 0.2s;
     }
     
-    .loading-item.pending {
-        color: #6b7280;
+    .stRadio > div > label:hover {
+        border-color: #0097a9;
+        background: #f0fdfa;
+    }
+    
+    .stRadio > div > label[data-checked="true"] {
+        background: #0097a9;
+        color: white;
+        border-color: #0097a9;
+    }
+    
+    /* Selectbox styling */
+    .stSelectbox > div > div {
+        background: white;
+        border-radius: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1671,55 +1747,46 @@ def main():
     # EAGER LOADING: Preload all data on app start
     preloaded_data = preload_all_data()
     
-    with st.sidebar:
-        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#0097a9 !important;">UK Energy Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#0097a9 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
-        st.markdown("---")
-        
-        st.markdown("### Data Source")
-        data_source = st.radio(
-            "Source", 
-            ["National Gas", "GASSCO", "Milford Haven LNG", "Elexon"], 
-            label_visibility="collapsed", 
-            key="ds"
-        )
-        
-        st.markdown("---")
-        
-        if data_source == "National Gas":
-            st.markdown("### Views")
-            ng_view = st.radio("View", ["Table", "Supply", "Demand"], label_visibility="collapsed", key="ngv")
-            
-            if ng_view == "Supply":
-                st.markdown("---")
-                st.markdown("##### <span style='color:#FFFF00;'>Supply Categories</span>", unsafe_allow_html=True)
-                supply_cat = st.radio("Cat", ["LNG", "Storage Withdrawal", "Beach Terminal", "IC Import"], label_visibility="collapsed", key="sc")
-            elif ng_view == "Demand":
-                st.markdown("---")
-                st.markdown("##### <span style='color:#FFFF00;'>Demand Categories</span>", unsafe_allow_html=True)
-                demand_cat = st.radio("Cat", ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"], label_visibility="collapsed", key="dc")
-        
-        elif data_source == "GASSCO":
-            st.markdown("### Views")
-            gassco_view = st.radio("View", ["Field Outages", "Terminal Outages"], label_visibility="collapsed", key="gv")
-        
-        elif data_source == "Elexon":
-            st.markdown("### Views")
-            elexon_view = st.radio("View", ["Electricity Demand", "Wind Profile"], label_visibility="collapsed", key="ev")
-        
-        st.markdown("---")
-        if st.button("Refresh Data", use_container_width=True):
+    # Header
+    col_header, col_refresh = st.columns([5, 1])
+    with col_header:
+        st.markdown(f'''
+        <div class="dashboard-header">
+            <div>
+                <h1>⚡ UK Energy Market Dashboard</h1>
+                <p>Real-time monitoring of UK gas and electricity markets</p>
+            </div>
+            <div class="header-time">
+                Last updated<br><strong>{datetime.now().strftime("%H:%M:%S")}</strong><br>{datetime.now().strftime("%d %b %Y")}
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    with col_refresh:
+        st.write("")  # Spacing
+        if st.button("🔄 Refresh", use_container_width=True):
             st.cache_data.clear()
             st.session_state.data_preloaded = False
             st.rerun()
-        
-        st.markdown(f'<div style="text-align:center;padding:1rem 0;font-size:0.8rem;color:#718096;">Last updated:<br>{datetime.now().strftime("%H:%M:%S %d/%m/%Y")}</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="dashboard-header"><h1>UK Energy Market Dashboard</h1><p>Real-time monitoring of UK gas and electricity markets</p></div>', unsafe_allow_html=True)
+    # Main navigation tabs
+    tab_elexon, tab_gas, tab_gassco, tab_lng = st.tabs([
+        "⚡ Electricity (Elexon)",
+        "🔥 National Gas", 
+        "🔧 GASSCO Outages",
+        "🚢 LNG Vessels"
+    ])
     
     # ========================================================================
-    # ELEXON / ELECTRICITY DEMAND VIEW
+    # ELEXON TAB
     # ========================================================================
-    if data_source == "Elexon":
+    with tab_elexon:
+        elexon_view = st.radio(
+            "Select View",
+            ["Electricity Demand", "Wind Profile"],
+            horizontal=True,
+            key="elexon_view"
+        )
         
         if elexon_view == "Electricity Demand":
             st.markdown('<div class="section-header">UK Electricity Demand: 48-Hour Outlook</div>', unsafe_allow_html=True)
@@ -1746,7 +1813,6 @@ def main():
                 actual_demand_copy = actual_demand.copy()
                 actual_demand_copy['timestamp'] = pd.to_datetime(actual_demand_copy['timestamp'], utc=True).dt.tz_localize(None)
                 
-                # Filter to only show data from plot_start (5am yesterday) onwards
                 actual_demand_copy = actual_demand_copy[actual_demand_copy['timestamp'] >= plot_start].copy()
                 
                 yesterday_actual = actual_demand_copy[
@@ -1757,7 +1823,6 @@ def main():
                     actual_demand_copy['timestamp'] >= today_gas_day_start
                 ].copy()
                 
-                # Get latest actual time to filter forecast
                 if len(today_actual) > 0:
                     latest_actual_time = today_actual['timestamp'].max()
                 else:
@@ -1767,7 +1832,6 @@ def main():
                 today_actual = pd.DataFrame()
                 latest_actual_time = today_gas_day_start
             
-            # Filter forecast to only show after latest actual
             if len(forecast_demand) > 0:
                 forecast_copy = forecast_demand.copy()
                 forecast_copy['timestamp'] = pd.to_datetime(forecast_copy['timestamp'], utc=True).dt.tz_localize(None)
@@ -1785,26 +1849,25 @@ def main():
             col1, col2, col3 = st.columns(3)
             with col1:
                 if len(today_actual) > 0:
-                    current_demand = today_actual['demand_mw'].iloc[-1] / 1000  # Convert to GW
+                    current_demand = today_actual['demand_mw'].iloc[-1] / 1000
                     st.metric("Current Demand", f"{current_demand:.1f} GW")
                 else:
                     st.metric("Current Demand", "N/A")
             
             with col2:
                 if len(today_actual) > 0:
-                    avg_today = today_actual['demand_mw'].mean() / 1000  # Convert to GW
+                    avg_today = today_actual['demand_mw'].mean() / 1000
                     st.metric("Average Today", f"{avg_today:.1f} GW")
                 else:
                     st.metric("Average Today", "N/A")
             
             with col3:
                 if len(forecast_plot) > 0:
-                    peak_forecast = forecast_plot['demand_mw'].max() / 1000  # Convert to GW
+                    peak_forecast = forecast_plot['demand_mw'].max() / 1000
                     st.metric("Peak Forecast", f"{peak_forecast:.1f} GW")
                 else:
                     st.metric("Peak Forecast", "N/A")
             
-            # Display the plot
             st.plotly_chart(fig, use_container_width=True, theme=None)
         
         elif elexon_view == "Wind Profile":
@@ -1817,7 +1880,6 @@ def main():
             </div>
             ''', unsafe_allow_html=True)
             
-            # Use preloaded wind data
             wind_data = preloaded_data['wind']
             
             actual_wind = wind_data['actual_wind']
@@ -1825,39 +1887,43 @@ def main():
             gas_day_start = wind_data['gas_day_start']
             gas_day_end = wind_data['gas_day_end']
             
-            # Display metrics
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 if len(actual_wind) > 0:
-                    latest_wind = actual_wind['wind_actual_mw'].iloc[-1] / 1000  # Convert to GW
+                    latest_wind = actual_wind['wind_actual_mw'].iloc[-1] / 1000
                     st.metric("Current Wind", f"{latest_wind:.1f} GW")
                 else:
                     st.metric("Current Wind", "N/A")
             
             with col2:
                 if len(actual_wind) > 0:
-                    avg_wind = actual_wind['wind_actual_mw'].mean() / 1000  # Convert to GW
+                    avg_wind = actual_wind['wind_actual_mw'].mean() / 1000
                     st.metric("Avg Actual", f"{avg_wind:.1f} GW")
                 else:
                     st.metric("Avg Actual", "N/A")
             
             with col3:
                 if len(actual_wind) > 0:
-                    max_wind = actual_wind['wind_actual_mw'].max() / 1000  # Convert to GW
+                    max_wind = actual_wind['wind_actual_mw'].max() / 1000
                     st.metric("Peak Actual", f"{max_wind:.1f} GW")
                 else:
                     st.metric("Peak Actual", "N/A")
             
-            # Create and display the plot
             fig = create_wind_generation_plot(actual_wind, forecast_wind, gas_day_start, gas_day_end)
             st.plotly_chart(fig, use_container_width=True, theme=None)
     
     # ========================================================================
-    # NATIONAL GAS VIEW
+    # NATIONAL GAS TAB
     # ========================================================================
-    elif data_source == "National Gas":
-        # Use preloaded data
+    with tab_gas:
+        ng_view = st.radio(
+            "Select View",
+            ["Flow Table", "Supply Charts", "Demand Charts"],
+            horizontal=True,
+            key="ng_view"
+        )
+        
         demand_df, supply_df = preloaded_data['national_gas']
         
         if demand_df is not None and supply_df is not None:
@@ -1884,12 +1950,19 @@ def main():
             supply_df['next_time'] = supply_df['Timestamp'].shift(-1).fillna(supply_df['Timestamp'].iloc[-1] + timedelta(minutes=2))
             supply_df['interval_seconds'] = (supply_df['next_time'] - supply_df['Timestamp']).dt.total_seconds()
             
-            if ng_view == "Table":
+            if ng_view == "Flow Table":
                 st.markdown('<div class="section-header">UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
                 st.markdown('<div class="info-box"><strong>Flow Table</strong> shows the current gas day flows. All values in mcm.</div>', unsafe_allow_html=True)
-                bal = render_nomination_table(demand_df, supply_df)
+                render_nomination_table(demand_df, supply_df)
             
-            elif ng_view == "Supply":
+            elif ng_view == "Supply Charts":
+                supply_cat = st.radio(
+                    "Supply Category",
+                    ["LNG", "Storage Withdrawal", "Beach Terminal", "IC Import"],
+                    horizontal=True,
+                    key="supply_cat"
+                )
+                
                 st.markdown(f'<div class="section-header">Supply - {supply_cat}</div>', unsafe_allow_html=True)
                 col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
                 
@@ -1905,7 +1978,14 @@ def main():
                         render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
                         st.plotly_chart(fig, use_container_width=True, theme=None)
             
-            elif ng_view == "Demand":
+            elif ng_view == "Demand Charts":
+                demand_cat = st.radio(
+                    "Demand Category",
+                    ["CCGT", "Storage Injection", "LDZ", "Industrial", "IC Export"],
+                    horizontal=True,
+                    key="demand_cat"
+                )
+                
                 st.markdown(f'<div class="section-header">Demand - {demand_cat}</div>', unsafe_allow_html=True)
                 col_map = {"CCGT": "Power Station", "Storage Injection": "Storage Injection", "LDZ": "LDZ Offtake", "Industrial": "Industrial", "IC Export": None}
                 
@@ -1924,15 +2004,21 @@ def main():
             st.error("⚠️ Unable to fetch National Gas data.")
     
     # ========================================================================
-    # GASSCO VIEW
+    # GASSCO TAB
     # ========================================================================
-    elif data_source == "GASSCO":
-        st.markdown(f'<div class="section-header">GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
+    with tab_gassco:
+        gassco_view = st.radio(
+            "Select View",
+            ["Field Outages", "Terminal Outages"],
+            horizontal=True,
+            key="gassco_view"
+        )
         
-        # Use preloaded data
         fields_proc, terminal_proc = preloaded_data['gassco']
         
         if gassco_view == "Field Outages":
+            st.markdown('<div class="section-header">GASSCO - Field Outages</div>', unsafe_allow_html=True)
+            
             if fields_proc is not None and len(fields_proc) > 0:
                 st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True, theme=None)
@@ -1942,6 +2028,8 @@ def main():
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Field Outages</h3><p>No active field outages within 14 days.</p></div>', unsafe_allow_html=True)
         else:
+            st.markdown('<div class="section-header">GASSCO - Terminal Outages</div>', unsafe_allow_html=True)
+            
             if terminal_proc is not None and len(terminal_proc) > 0:
                 st.markdown(f'<div class="info-box"><strong>{len(terminal_proc)} active terminal outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
@@ -1952,9 +2040,9 @@ def main():
                 st.markdown('<div class="no-data"><h3>✅ No Terminal Outages</h3><p>No active terminal outages within 14 days.</p></div>', unsafe_allow_html=True)
     
     # ========================================================================
-    # LNG VESSELS VIEW
+    # LNG VESSELS TAB
     # ========================================================================
-    elif data_source == "Milford Haven LNG":
+    with tab_lng:
         st.markdown('<div class="section-header">LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
         
         st.markdown('''
@@ -1964,12 +2052,10 @@ def main():
         </div>
         ''', unsafe_allow_html=True)
         
-        # Use preloaded LNG vessel data (already filtered for LNG vessels)
         lng_df = preloaded_data['lng']
         
         if lng_df is not None and len(lng_df) > 0:
             st.metric("LNG Vessels Expected", len(lng_df))
-            
             st.markdown("---")
             st.markdown("#### LNG Vessel Arrivals")
             render_lng_vessel_table(lng_df)
