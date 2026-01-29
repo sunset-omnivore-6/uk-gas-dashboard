@@ -525,6 +525,10 @@ def render_lng_vessel_table(df: pd.DataFrame):
     if not ship_col:
         ship_col = df.columns[0]
 
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+
     # Identify "To" / destination column explicitly
     to_col = None
     for col in df.columns:
