@@ -648,15 +648,15 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
             showline=True
         ),
         legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='left',
-            x=0,
-            bgcolor='rgba(255, 255, 255, 0.9)',
-            bordercolor='#cbd5e1',
+            orientation='v',
+            yanchor='top',
+            y=0.99,
+            xanchor='right',
+            x=0.99,
+            bgcolor='rgba(255, 255, 255, 0.95)',
+            bordercolor='#1e293b',
             borderwidth=2,
-            font=dict(size=11)
+            font=dict(size=12, color='#1e293b')
         )
     )
     
@@ -1286,15 +1286,6 @@ def main():
             st.markdown("### Views")
             gassco_view = st.radio("View", ["Field Outages", "Terminal Outages"], label_visibility="collapsed", key="gv")
         
-        elif data_source == "Milford Haven LNG":
-            st.markdown("### View Options")
-            lng_view = st.radio(
-                "Display", 
-                ["Table View", "Card View"], 
-                label_visibility="collapsed", 
-                key="lngv"
-            )
-        
         elif data_source == "Elexon":
             st.markdown("### Views")
             elexon_view = st.radio("View", ["Electricity Demand"], label_visibility="collapsed", key="ev")
@@ -1362,6 +1353,9 @@ def main():
             # Split actual into yesterday and today
             if len(actual_demand) > 0:
                 actual_demand['timestamp'] = pd.to_datetime(actual_demand['timestamp'], utc=True).dt.tz_localize(None)
+                
+                # Filter to only show data from plot_start (5am yesterday) onwards
+                actual_demand = actual_demand[actual_demand['timestamp'] >= plot_start].copy()
                 
                 yesterday_actual = actual_demand[
                     actual_demand['timestamp'] < today_gas_day_start
@@ -1580,33 +1574,8 @@ def main():
                 st.metric("Unique Flags", unique_flags)
             
             st.markdown("---")
-            
-            if lng_view == "Table View":
-                st.markdown("#### LNG Vessel Arrivals")
-                render_lng_vessel_table(lng_df)
-            elif lng_view == "Card View":
-                st.markdown("#### LNG Vessel Details")
-                for idx, row in lng_df.iterrows():
-                    with st.container(border=True):
-                        ship_col = None
-                        for col in lng_df.columns:
-                            if col.lower() in ['ship', 'vessel', 'name']:
-                                ship_col = col
-                                break
-                        if ship_col:
-                            st.subheader(row[ship_col])
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if pd.notna(row.get('IMO')):
-                                st.markdown(f"**IMO:** {row.get('IMO')}")
-                            if pd.notna(row.get('Flag')):
-                                st.markdown(f"**Flag:** {row.get('Flag')}")
-                        with col2:
-                            if pd.notna(row.get('Deadweight')):
-                                st.markdown(f"**Deadweight:** {row.get('Deadweight')}")
-                            if pd.notna(row.get('GrossTonnage')):
-                                st.markdown(f"**Gross Tonnage:** {row.get('GrossTonnage')}")
+            st.markdown("#### LNG Vessel Arrivals")
+            render_lng_vessel_table(lng_df)
         else:
             st.markdown('''
             <div class="no-data">
