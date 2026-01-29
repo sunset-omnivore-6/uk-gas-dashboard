@@ -1,4 +1,4 @@
-# update: 28/01/2026
+# update: 29/01/2026
 
 import streamlit as st
 import requests
@@ -13,8 +13,8 @@ import html
 
 # Page configuration
 st.set_page_config(
-    page_title="UK Gas Market Dashboard",
-    page_icon="🛠️",
+    page_title="UK Energy Market Dashboard",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -126,6 +126,15 @@ st.markdown("""
     .nomination-table .supply-total { background-color: #0072B2; color: white; font-weight: 600; }
     .nomination-table .balance { background-color: #CC79A7; color: white; font-weight: 600; }
     
+    .info-box {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-left: 4px solid #0097a9;
+        padding: 1rem 1.5rem;
+        border-radius: 0 8px 8px 0;
+        margin: 1rem 0;
+        color: #333;
+    }
+    
     .no-data {
         text-align: center;
         padding: 3rem;
@@ -165,42 +174,6 @@ st.markdown("""
         border: 1px solid rgba(0,0,0,0.1);
     }
     
-    .vessel-card {
-        background: white;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        border-left: 4px solid #0097a9;
-    }
-    
-    .vessel-card h4 {
-        color: #1e293b;
-        margin: 0 0 1rem 0;
-        font-size: 1.2rem;
-    }
-    
-    .vessel-detail {
-        display: flex;
-        justify-content: space-between;
-        padding: 0.5rem 0;
-        border-bottom: 1px solid #e2e8f0;
-    }
-    
-    .vessel-detail:last-child {
-        border-bottom: none;
-    }
-    
-    .vessel-detail .label {
-        color: #64748b;
-        font-weight: 500;
-    }
-    
-    .vessel-detail .value {
-        color: #1e293b;
-        font-weight: 600;
-    }
-    
     .vessel-table {
         width: 100%;
         border-collapse: collapse;
@@ -229,34 +202,6 @@ st.markdown("""
         background-color: #f0f9ff;
     }
     
-    .status-confirmed {
-        background-color: #10b981;
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .status-expected {
-        background-color: #f59e0b;
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .data-source-badge {
-        display: inline-block;
-        background: #e2e8f0;
-        color: #475569;
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        margin-left: 0.5rem;
-    }
-    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
@@ -273,19 +218,405 @@ st.markdown("""
 
 
 # ============================================================================
+# ELECTRICITY DEMAND FUNCTIONS (ELEXON API)
+# ============================================================================
+
+@st.cache_data(ttl=300)
+def fetch_actual_demand_elexon(from_date, to_date):
+    """
+    Fetch actual electricity demand from Elexon API.
+    
+    Args:
+        from_date: Start date for data retrieval
+        to_date: End date for data retrieval
+        
+    Returns:
+        DataFrame with timestamp and demand_mw columns
+    """
+    url = f"https://data.elexon.co.uk/bmrs/api/v1/demand/outturn/summary?from={from_date.strftime('%Y-%m-%d')}&to={to_date.strftime('%Y-%m-%d')}"
+    
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'data' in data:
+            df = pd.DataFrame(data['data'])
+        else:
+            df = pd.DataFrame(data)
+        
+        if len(df) == 0:
+            return pd.DataFrame()
+        
+        df['timestamp'] = pd.to_datetime(df['startTime'], utc=True)
+        df['demand_mw'] = pd.to_numeric(df['demand'], errors='coerce')
+        
+        result = df[['timestamp', 'demand_mw']].dropna().sort_values('timestamp').reset_index(drop=True)
+        
+        return result
+        
+    except Exception as e:
+        st.warning(f"Error fetching actual demand: {str(e)}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def fetch_forecast_demand_elexon(from_datetime, to_datetime):
+    """
+    Fetch day-ahead forecast demand from Elexon API.
+    
+    Args:
+        from_datetime: Start datetime for forecast
+        to_datetime: End datetime for forecast
+        
+    Returns:
+        DataFrame with timestamp and demand_mw columns
+    """
+    from_str = from_datetime.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    to_str = to_datetime.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    
+    url = f"https://data.elexon.co.uk/bmrs/api/v1/forecast/demand/day-ahead/latest?format=json&from={from_str}&to={to_str}"
+    
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'data' in data:
+            df = pd.DataFrame(data['data'])
+        else:
+            df = pd.DataFrame(data)
+        
+        if len(df) == 0:
+            return pd.DataFrame()
+        
+        df['timestamp'] = pd.to_datetime(df['startTime'], utc=True)
+        df['demand_mw'] = pd.to_numeric(df['transmissionSystemDemand'], errors='coerce')
+        
+        result = df[['timestamp', 'demand_mw']].dropna().sort_values('timestamp').reset_index(drop=True)
+        
+        return result
+        
+    except Exception as e:
+        st.warning(f"Error fetching forecast demand: {str(e)}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def fetch_historical_demand_elexon(start_date, end_date, chunk_days=6):
+    """
+    Fetch historical electricity demand data in chunks.
+    
+    Args:
+        start_date: Start date for historical data
+        end_date: End date for historical data
+        chunk_days: Number of days per API request
+        
+    Returns:
+        DataFrame with timestamp and demand_mw columns
+    """
+    date_range = pd.date_range(start=start_date, end=end_date, freq=f'{chunk_days}D')
+    if date_range[-1] < pd.Timestamp(end_date):
+        date_range = date_range.append(pd.DatetimeIndex([end_date]))
+    
+    all_data = []
+    
+    for i in range(len(date_range) - 1):
+        chunk_start = date_range[i].date()
+        chunk_end = date_range[i + 1].date()
+        
+        chunk_data = fetch_actual_demand_elexon(chunk_start, chunk_end)
+        if len(chunk_data) > 0:
+            all_data.append(chunk_data)
+        
+        # Rate limiting
+        time.sleep(0.5)
+    
+    if len(all_data) == 0:
+        return pd.DataFrame()
+    
+    result = pd.concat(all_data, ignore_index=True)
+    result = result.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
+    
+    return result
+
+
+def calculate_seasonal_baseline_electricity(historical_data, target_month, min_observations=5):
+    """
+    Calculate seasonal baseline statistics for electricity demand.
+    
+    Args:
+        historical_data: DataFrame with timestamp and demand_mw columns
+        target_month: Month number (1-12) to calculate baseline for
+        min_observations: Minimum number of observations required per hour/day-type bin
+        
+    Returns:
+        DataFrame with baseline statistics by hour and day type
+    """
+    if len(historical_data) == 0:
+        return pd.DataFrame()
+    
+    # Create gas day (5am-5am) and classify weekday/weekend
+    historical_data = historical_data.copy()
+    historical_data['date'] = historical_data['timestamp'].dt.date
+    historical_data['hour'] = historical_data['timestamp'].dt.hour
+    
+    # Gas day: if hour < 5, belongs to previous day
+    historical_data['gas_day'] = historical_data.apply(
+        lambda row: row['date'] - timedelta(days=1) if row['hour'] < 5 else row['date'],
+        axis=1
+    )
+    historical_data['gas_day'] = pd.to_datetime(historical_data['gas_day'])
+    historical_data['month'] = historical_data['gas_day'].dt.month
+    historical_data['day_type'] = historical_data['gas_day'].dt.day_name().apply(
+        lambda x: 'Weekend' if x in ['Saturday', 'Sunday'] else 'Weekday'
+    )
+    historical_data['hour_bin'] = historical_data['timestamp'].dt.hour
+    
+    # Filter to target month
+    month_data = historical_data[historical_data['month'] == target_month].copy()
+    
+    if len(month_data) == 0:
+        return pd.DataFrame()
+    
+    # Calculate statistics by day_type and hour_bin
+    baseline = month_data.groupby(['day_type', 'hour_bin']).agg(
+        mean_demand=('demand_mw', 'mean'),
+        q05=('demand_mw', lambda x: x.quantile(0.05)),
+        q25=('demand_mw', lambda x: x.quantile(0.25)),
+        q75=('demand_mw', lambda x: x.quantile(0.75)),
+        q95=('demand_mw', lambda x: x.quantile(0.95)),
+        n_obs=('demand_mw', 'count')
+    ).reset_index()
+    
+    # Filter out bins with too few observations
+    baseline = baseline[baseline['n_obs'] >= min_observations].copy()
+    
+    return baseline
+
+
+def expand_baseline_to_timeline_electricity(baseline, start_time, end_time):
+    """
+    Expand baseline statistics to a full timeline with smoothing.
+    
+    Args:
+        baseline: DataFrame with baseline statistics
+        start_time: Start of timeline
+        end_time: End of timeline
+        
+    Returns:
+        DataFrame with baseline expanded to 30-minute intervals
+    """
+    if len(baseline) == 0:
+        return pd.DataFrame()
+    
+    # Create 30-minute grid
+    time_grid = pd.date_range(start=start_time, end=end_time, freq='30T')
+    
+    expanded = pd.DataFrame({'timestamp': time_grid})
+    expanded['date'] = expanded['timestamp'].dt.date
+    expanded['hour_val'] = expanded['timestamp'].dt.hour
+    
+    # Determine gas day and day type
+    expanded['gas_day'] = expanded.apply(
+        lambda row: row['date'] - timedelta(days=1) if row['hour_val'] < 5 else row['date'],
+        axis=1
+    )
+    expanded['gas_day'] = pd.to_datetime(expanded['gas_day'])
+    expanded['day_type'] = expanded['gas_day'].dt.day_name().apply(
+        lambda x: 'Weekend' if x in ['Saturday', 'Sunday'] else 'Weekday'
+    )
+    expanded['hour_bin'] = expanded['hour_val']
+    
+    # Merge with baseline
+    expanded = expanded.merge(baseline, on=['day_type', 'hour_bin'], how='left')
+    expanded = expanded.dropna(subset=['mean_demand'])
+    expanded = expanded.sort_values('timestamp').reset_index(drop=True)
+    
+    # Apply rolling smoothing
+    smooth_window = 5
+    for col in ['mean_demand', 'q05', 'q25', 'q75', 'q95']:
+        expanded[col] = expanded[col].rolling(window=smooth_window, center=True, min_periods=1).mean()
+    
+    # Forward/backward fill any remaining NaNs
+    expanded = expanded.ffill().bfill()
+    
+    return expanded
+
+
+def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data, baseline_expanded):
+    """
+    Create the 48-hour electricity demand plot.
+    
+    Args:
+        yesterday_actual: DataFrame with yesterday's actual demand
+        today_actual: DataFrame with today's actual demand
+        forecast_data: DataFrame with forecast demand
+        baseline_expanded: DataFrame with seasonal baseline
+        
+    Returns:
+        Plotly figure object
+    """
+    fig = go.Figure()
+    
+    # Layer 1: Seasonal uncertainty bands
+    if len(baseline_expanded) > 0:
+        fig.add_trace(go.Scatter(
+            x=baseline_expanded['timestamp'],
+            y=baseline_expanded['q95'],
+            mode='lines',
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=baseline_expanded['timestamp'],
+            y=baseline_expanded['q05'],
+            mode='lines',
+            line=dict(width=0),
+            fill='tonexty',
+            fillcolor='rgba(67, 147, 195, 0.15)',
+            name='5-95% Range',
+            hovertemplate='<b>5-95%% Range</b><extra></extra>'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=baseline_expanded['timestamp'],
+            y=baseline_expanded['q75'],
+            mode='lines',
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=baseline_expanded['timestamp'],
+            y=baseline_expanded['q25'],
+            mode='lines',
+            line=dict(width=0),
+            fill='tonexty',
+            fillcolor='rgba(67, 147, 195, 0.25)',
+            name='25-75% Range',
+            hovertemplate='<b>25-75%% Range</b><extra></extra>'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=baseline_expanded['timestamp'],
+            y=baseline_expanded['mean_demand'],
+            mode='lines',
+            line=dict(color='#2166AC', width=2, dash='dash'),
+            name='Seasonal Mean',
+            hovertemplate='<b>Seasonal Mean:</b> %{y:,.0f} MW<extra></extra>'
+        ))
+    
+    # Layer 2: Yesterday's actual (grey)
+    if len(yesterday_actual) > 0:
+        fig.add_trace(go.Scatter(
+            x=yesterday_actual['timestamp'],
+            y=yesterday_actual['demand_mw'],
+            mode='lines',
+            line=dict(color='#7F7F7F', width=2),
+            name='Yesterday',
+            hovertemplate='<b>Yesterday:</b> %{y:,.0f} MW<extra></extra>'
+        ))
+    
+    # Layer 3: Today's actual (red)
+    if len(today_actual) > 0:
+        fig.add_trace(go.Scatter(
+            x=today_actual['timestamp'],
+            y=today_actual['demand_mw'],
+            mode='lines',
+            line=dict(color='#D6604D', width=3),
+            name='Actual Today',
+            hovertemplate='<b>Actual:</b> %{y:,.0f} MW<extra></extra>'
+        ))
+    
+    # Layer 4: Forecast (green)
+    if len(forecast_data) > 0:
+        fig.add_trace(go.Scatter(
+            x=forecast_data['timestamp'],
+            y=forecast_data['demand_mw'],
+            mode='lines',
+            line=dict(color='#4DAF4A', width=3),
+            name='Forecast',
+            hovertemplate='<b>Forecast:</b> %{y:,.0f} MW<extra></extra>'
+        ))
+    
+    # Current time marker
+    now = datetime.utcnow()
+    all_demand = pd.concat([yesterday_actual, today_actual, forecast_data])
+    if len(all_demand) > 0:
+        y_max_for_label = all_demand['demand_mw'].max()
+        
+        fig.add_vline(
+            x=now,
+            line_dash='dot',
+            line_color='grey',
+            line_width=2,
+            annotation_text='Now',
+            annotation_position='top',
+            annotation=dict(
+                font=dict(size=10, color='grey'),
+                bgcolor='white',
+                bordercolor='grey',
+                borderwidth=1
+            )
+        )
+    
+    # Layout
+    current_month = datetime.now().month
+    month_name = datetime.now().strftime('%B')
+    year = datetime.now().year
+    
+    fig.update_layout(
+        title=dict(
+            text=f'<b>UK Electricity Demand: 48-Hour Outlook</b><br><sub>{month_name} {year} seasonal baseline | Updated: {datetime.utcnow().strftime("%d %b %H:%M UTC")}</sub>',
+            font=dict(size=16, color='#1e293b')
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(color='#1e293b', size=11),
+        hovermode='x unified',
+        height=550,
+        margin=dict(l=60, r=60, t=100, b=60),
+        template='plotly_white',
+        xaxis=dict(
+            gridcolor='#e2e8f0',
+            linecolor='#1e293b',
+            linewidth=2,
+            tickfont=dict(color='#1e293b', size=11),
+            title_font=dict(color='#1e293b'),
+            showline=True,
+            tickformat='%a %d<br>%H:%M'
+        ),
+        yaxis=dict(
+            title='Demand (MW)',
+            gridcolor='#e2e8f0',
+            linecolor='#1e293b',
+            linewidth=2,
+            tickfont=dict(color='#1e293b', size=11),
+            title_font=dict(color='#1e293b'),
+            showline=True
+        ),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='left',
+            x=0
+        )
+    )
+    
+    return fig
+
+
+# ============================================================================
 # LNG VESSEL TRACKING FUNCTIONS
 # ============================================================================
 
 def get_vessel_info(ship_name: str) -> dict:
-    """
-    Fetch vessel details from VesselFinder website.
-    
-    Args:
-        ship_name: Name of the ship to look up
-        
-    Returns:
-        Dictionary containing vessel information
-    """
+    """Fetch vessel details from VesselFinder website."""
     search_name = quote(ship_name, safe='')
     search_url = f"https://www.vesselfinder.com/vessels?name={search_name}"
     
@@ -304,7 +635,7 @@ def get_vessel_info(ship_name: str) -> dict:
         time.sleep(1)
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
         response = requests.get(search_url, headers=headers, timeout=10)
@@ -335,7 +666,6 @@ def get_vessel_info(ship_name: str) -> dict:
         vessel_soup = BeautifulSoup(vessel_response.content, 'html.parser')
         
         def extract_from_page(soup, label):
-            """Extract value from page using various structures."""
             for elem in soup.find_all(['td', 'span', 'div']):
                 text = elem.get_text(strip=True)
                 if text.lower() == label.lower():
@@ -371,12 +701,6 @@ def get_vessel_info(ship_name: str) -> dict:
             'Status': 'Found'
         }
         
-    except requests.exceptions.Timeout:
-        default_result['Status'] = 'Timeout'
-        return default_result
-    except requests.exceptions.RequestException as e:
-        default_result['Status'] = f'Request Error: {str(e)}'
-        return default_result
     except Exception as e:
         default_result['Status'] = f'Error: {str(e)}'
         return default_result
@@ -384,17 +708,12 @@ def get_vessel_info(ship_name: str) -> dict:
 
 @st.cache_data(ttl=300)
 def get_milford_haven_vessels() -> pd.DataFrame:
-    """
-    Scrape the Milford Haven Port Authority website for arriving vessels.
-    
-    Returns:
-        DataFrame containing vessel arrival information
-    """
+    """Scrape Milford Haven Port Authority website for arriving vessels."""
     url = "https://www.mhpa.co.uk/live-information/vessels-arriving/"
     
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
         response = requests.get(url, headers=headers, timeout=15)
@@ -447,18 +766,12 @@ def get_milford_haven_vessels() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def get_lng_vessels_with_details() -> pd.DataFrame:
-    """
-    Get LNG vessels arriving at Milford Haven with additional details from VesselFinder.
-    
-    Returns:
-        DataFrame containing LNG vessel information with additional details
-    """
+    """Get LNG vessels with details from VesselFinder."""
     vessels_df = get_milford_haven_vessels()
     
     if vessels_df is None or len(vessels_df) == 0:
         return None
     
-    # Identify the ship type column
     ship_type_col = None
     for col in vessels_df.columns:
         if 'type' in col.lower() or 'ship type' in col.lower():
@@ -466,10 +779,9 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
             break
     
     if ship_type_col is None:
-        st.warning("Could not identify ship type column. Showing all vessels.")
+        st.warning("Could not identify ship type column.")
         return vessels_df
     
-    # Filter for LNG tankers
     lng_df = vessels_df[
         vessels_df[ship_type_col].str.lower().str.contains('lng', na=False)
     ].copy()
@@ -477,7 +789,6 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
     if len(lng_df) == 0:
         return None
     
-    # Identify the ship name column
     ship_col = None
     for col in vessels_df.columns:
         if col.lower() in ['ship', 'vessel', 'name', 'vessel name', 'ship name']:
@@ -501,25 +812,19 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
 
 
 def render_lng_vessel_table(df: pd.DataFrame):
-    """
-    Render the LNG vessel table with styling.
-
-    Args:
-        df: DataFrame containing vessel information
-    """
+    """Render LNG vessel table."""
     if df is None or len(df) == 0:
         st.markdown('''
         <div class="no-data">
             <h3>No LNG Vessels Found</h3>
-            <p>No LNG tankers are currently scheduled to arrive at Milford Haven.</p>
+            <p>No LNG tankers are currently scheduled.</p>
         </div>
         ''', unsafe_allow_html=True)
         return
 
-    # Identify ship name column
     ship_col = None
     for col in df.columns:
-        if col.lower() in ['ship', 'vessel', 'name', 'vessel name', 'ship name']:
+        if col.lower() in ['ship', 'vessel', 'name']:
             ship_col = col
             break
     if not ship_col:
@@ -529,155 +834,46 @@ def render_lng_vessel_table(df: pd.DataFrame):
         if df[col].dtype == 'object':
             df[col] = df[col].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
 
-    # Identify "To" / destination column explicitly
     to_col = None
     for col in df.columns:
-        col_lower = col.lower().strip()
-        if col_lower == 'to':
+        if col.lower().strip() == 'to':
             to_col = col
             break
 
-    # If no exact "To" column, check for destination/berth/terminal
-    if to_col is None:
-        for col in df.columns:
-            col_lower = col.lower()
-            if any(term in col_lower for term in ['destination', 'berth', 'terminal']):
-                to_col = col
-                break
-
-    # Build display columns - ship name first
     display_cols = [ship_col]
-
-    # Add "To" column early if found
     if to_col and to_col not in display_cols:
         display_cols.append(to_col)
 
-    # Add schedule/origin columns
     for col in df.columns:
         col_lower = col.lower()
         if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival', 'from', 'agent']):
             if col not in display_cols:
                 display_cols.append(col)
 
-    # Add vessel details columns
     detail_cols = ['IMO', 'Flag', 'Deadweight', 'GrossTonnage']
     for col in detail_cols:
         if col in df.columns and col not in display_cols:
             display_cols.append(col)
 
-    # Filter to existing columns only
     display_cols = [col for col in display_cols if col in df.columns]
-
     display_df = df[display_cols].copy()
 
-    # Rename columns for better display
-    rename_map = {
-        'GrossTonnage': 'Gross Tonnage',
-    }
-    # Rename "To" column to "Destination" for clarity if it exists
+    rename_map = {'GrossTonnage': 'Gross Tonnage'}
     if to_col and to_col.lower() == 'to':
         rename_map[to_col] = 'Destination'
 
     display_df = display_df.rename(columns=rename_map)
 
-    # Build column config dynamically
-    column_config = {
-        ship_col: st.column_config.TextColumn("Vessel Name", width="medium"),
-        "IMO": st.column_config.TextColumn("IMO Number", width="small"),
-        "Flag": st.column_config.TextColumn("Flag", width="small"),
-        "Deadweight": st.column_config.TextColumn("DWT", width="small"),
-        "Gross Tonnage": st.column_config.TextColumn("GT", width="small"),
-        "Destination": st.column_config.TextColumn("Destination", width="medium"),
-    }
-
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config=column_config
-    )
-
-
-def render_lng_vessel_cards(df: pd.DataFrame):
-    """
-    Render LNG vessel information as cards using Streamlit native components.
-    
-    Args:
-        df: DataFrame containing vessel information
-    """
-    if df is None or len(df) == 0:
-        return
-    
-    # Identify the ship name column
-    ship_col = None
-    for col in df.columns:
-        if col.lower() in ['ship', 'vessel', 'name', 'vessel name', 'ship name']:
-            ship_col = col
-            break
-    if not ship_col:
-        ship_col = df.columns[0]
-    
-    # Identify "To" / destination column
-    to_col = None
-    for col in df.columns:
-        col_lower = col.lower().strip()
-        if col_lower == 'to':
-            to_col = col
-            break
-    if to_col is None:
-        for col in df.columns:
-            col_lower = col.lower()
-            if any(term in col_lower for term in ['destination', 'berth', 'terminal']):
-                to_col = col
-                break
-    
-    for idx, row in df.iterrows():
-        ship_name = row[ship_col]
-        
-        with st.container(border=True):
-            st.subheader(ship_name)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if pd.notna(row.get('IMO')) and row.get('IMO'):
-                    st.markdown(f"**IMO:** {row.get('IMO')}")
-                if pd.notna(row.get('MMSI')) and row.get('MMSI'):
-                    st.markdown(f"**MMSI:** {row.get('MMSI')}")
-                if pd.notna(row.get('Flag')) and row.get('Flag'):
-                    st.markdown(f"**Flag:** {row.get('Flag')}")
-                if pd.notna(row.get('Deadweight')) and row.get('Deadweight'):
-                    st.markdown(f"**Deadweight:** {row.get('Deadweight')}")
-                if pd.notna(row.get('GrossTonnage')) and row.get('GrossTonnage'):
-                    st.markdown(f"**Gross Tonnage:** {row.get('GrossTonnage')}")
-            
-            with col2:
-                # Show destination (To column)
-                if to_col and pd.notna(row.get(to_col)) and row.get(to_col):
-                    st.markdown(f"**Destination:** {row.get(to_col)}")
-                
-                # Add arrival/schedule info from other columns
-                for col in df.columns:
-                    col_lower = col.lower()
-                    if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival']):
-                        if col != ship_col and pd.notna(row.get(col)) and row.get(col):
-                            st.markdown(f"**{col}:** {row.get(col)}")
-                    elif 'from' in col_lower:
-                        if pd.notna(row.get(col)) and row.get(col):
-                            st.markdown(f"**From:** {row.get(col)}")
-            
-            vf_url = row.get('VesselFinderURL')
-            if pd.notna(vf_url) and vf_url:
-                st.markdown(f"[View on VesselFinder]({vf_url})")
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # ============================================================================
-# EXISTING FUNCTIONS (GASSCO AND NATIONAL GAS)
+# GAS MARKET FUNCTIONS (EXISTING CODE)
 # ============================================================================
 
 @st.cache_data(ttl=120)
 def scrape_gassco_data():
-    """Scrape GASSCO REMIT data for field and terminal outages."""
+    """Scrape GASSCO REMIT data."""
     try:
         session = requests.Session()
         session.get("https://umm.gassco.no/", timeout=10)
@@ -695,7 +891,7 @@ def scrape_gassco_data():
 
 
 def parse_gassco_table(table):
-    """Parse GASSCO table data into DataFrame."""
+    """Parse GASSCO table."""
     rows = table.find_all('tr', id=True)
     data = []
     
@@ -721,7 +917,7 @@ def parse_gassco_table(table):
 
 
 def process_remit_data(df):
-    """Process REMIT data - filter active events within 14 days."""
+    """Process REMIT data."""
     if df is None or len(df) == 0:
         return None
     
@@ -751,16 +947,7 @@ def process_remit_data(df):
 
 @st.cache_data(ttl=120)
 def get_gas_data(request_type, max_retries=3):
-    """
-    Fetch gas data from National Gas API with retry logic.
-    
-    Args:
-        request_type: The type of data to request (e.g., 'demandCategoryGraph', 'supplyCategoryGraph')
-        max_retries: Number of retry attempts if request fails
-        
-    Returns:
-        DataFrame containing gas data, or None if all attempts fail
-    """
+    """Fetch gas data from National Gas API."""
     url = "https://data.nationalgas.com/api/gas-system-status-graph"
     headers = {"Content-Type": "application/json"}
     
@@ -770,31 +957,21 @@ def get_gas_data(request_type, max_retries=3):
                 url, 
                 json={"request": request_type}, 
                 headers=headers, 
-                timeout=30  # Increased timeout for reliability
+                timeout=30
             )
-            response.raise_for_status()  # Raise exception for bad status codes
+            response.raise_for_status()
             return pd.DataFrame(response.json()["data"])
-        except requests.exceptions.Timeout:
-            if attempt < max_retries - 1:
-                time.sleep(2)  # Wait before retry
-                continue
-            st.error(f"⚠️ National Gas API timeout after {max_retries} attempts. The API may be slow or unavailable.")
-            return None
-        except requests.exceptions.RequestException as e:
+        except:
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
-            st.error(f"⚠️ Error fetching gas data: {str(e)}")
-            return None
-        except (KeyError, ValueError) as e:
-            st.error(f"⚠️ Error parsing gas data response: {str(e)}")
             return None
     
     return None
 
 
 def get_chart_layout(title="", height=500):
-    """Get standardised Plotly chart layout."""
+    """Get chart layout."""
     return dict(
         title=dict(text=title, font=dict(size=18, color='#1e293b')),
         plot_bgcolor='white',
@@ -824,7 +1001,7 @@ def get_chart_layout(title="", height=500):
 
 
 def create_gassco_timeline_plot(df, title_prefix):
-    """Create timeline plot for GASSCO outages."""
+    """Create GASSCO timeline plot."""
     colors = {'Planned': '#7fcdcd', 'Unplanned': '#f8b4b4'}
     fig = go.Figure()
     shown = set()
@@ -867,7 +1044,7 @@ def create_gassco_timeline_plot(df, title_prefix):
 
 
 def create_gassco_cumulative_plot(df, title_prefix):
-    """Create cumulative unavailability plot for GASSCO outages."""
+    """Create GASSCO cumulative plot."""
     events = []
     for _, row in df.iterrows():
         events.append({'time': row['Event Start'], 'delta': -row['Unavailable Capacity']})
@@ -896,7 +1073,7 @@ def create_gassco_cumulative_plot(df, title_prefix):
 
 
 def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
-    """Create flow rate chart with average and current markers."""
+    """Create flow chart."""
     if column_name not in df.columns:
         return None, 0, 0, 0
     
@@ -940,7 +1117,7 @@ def create_flow_chart(df, column_name, chart_title, color='#0097a9'):
 
 
 def render_metric_cards(metrics):
-    """Render metric cards in columns."""
+    """Render metric cards."""
     cols = st.columns(len(metrics))
     for col, (label, value, unit) in zip(cols, metrics):
         with col:
@@ -953,7 +1130,7 @@ def render_metric_cards(metrics):
 
 
 def render_nomination_table(demand_df, supply_df):
-    """Render the nomination summary table."""
+    """Render nomination table."""
     demand_cols = ["LDZ Offtake", "Power Station", "Industrial", "Storage Injection", "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]
     supply_cols = ["Storage Withdrawal", "LNG", "Bacton BBL Import", "Bacton INT Import", "Beach (UKCS/Norway)"]
     
@@ -1009,7 +1186,7 @@ def render_nomination_table(demand_df, supply_df):
 
 
 def render_gassco_table(df):
-    """Render GASSCO outages table."""
+    """Render GASSCO table."""
     display_df = df.copy()
     for col in ['Publication date/time', 'Event Start', 'Event Stop']:
         if col in display_df.columns:
@@ -1027,13 +1204,13 @@ def render_gassco_table(df):
 
 def main():
     with st.sidebar:
-        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#0097a9 !important;"> UK Gas Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#0097a9 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#0097a9 !important;">⚡ UK Energy Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#0097a9 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
         st.markdown("---")
         
         st.markdown("### Data Source")
         data_source = st.radio(
             "Source", 
-            ["National Gas", "GASSCO", "Milford Haven LNG"], 
+            ["National Gas", "GASSCO", "Milford Haven LNG", "Elexon"], 
             label_visibility="collapsed", 
             key="ds"
         )
@@ -1065,8 +1242,10 @@ def main():
                 label_visibility="collapsed", 
                 key="lngv"
             )
-            st.markdown("---")
-            st.markdown('<div class="info-box" style="background:#1a1a2e;border-left-color:#0097a9;"><small style="color:#0097a9;">Data sourced from Milford Haven Port Authority with vessel details from VesselFinder.</small></div>', unsafe_allow_html=True)
+        
+        elif data_source == "Elexon":
+            st.markdown("### Views")
+            elexon_view = st.radio("View", ["Electricity Demand"], label_visibility="collapsed", key="ev")
         
         st.markdown("---")
         if st.button("🔄 Refresh Data", use_container_width=True):
@@ -1075,12 +1254,123 @@ def main():
         
         st.markdown(f'<div style="text-align:center;padding:1rem 0;font-size:0.8rem;color:#718096;">Last updated:<br>{datetime.now().strftime("%H:%M:%S %d/%m/%Y")}</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="dashboard-header"><h1>UK Gas Market Dashboard</h1><p>Real-time monitoring of UK gas supply, demand, and infrastructure status</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="dashboard-header"><h1>UK Energy Market Dashboard</h1><p>Real-time monitoring of UK gas and electricity markets</p></div>', unsafe_allow_html=True)
+    
+    # ========================================================================
+    # ELEXON / ELECTRICITY DEMAND VIEW
+    # ========================================================================
+    if data_source == "Elexon":
+        st.markdown('<div class="section-header">⚡ UK Electricity Demand: 48-Hour Outlook</div>', unsafe_allow_html=True)
+        
+        st.markdown('''
+        <div class="info-box">
+            <strong>Electricity Demand Forecast</strong> — Shows actual demand from yesterday and today, 
+            48-hour day-ahead forecast, and seasonal baseline ranges based on historical patterns for the current month.
+        </div>
+        ''', unsafe_allow_html=True)
+        
+        with st.spinner("Fetching electricity demand data from Elexon..."):
+            # Define time boundaries
+            today = datetime.utcnow().date()
+            current_hour = datetime.utcnow().hour
+            
+            # Gas day logic: if before 5am, gas day started yesterday
+            if current_hour < 5:
+                gas_day_today = today - timedelta(days=1)
+            else:
+                gas_day_today = today
+            
+            gas_day_yesterday = gas_day_today - timedelta(days=1)
+            
+            # Plot window: yesterday 05:00 to today+2 05:00
+            plot_start = datetime.combine(gas_day_yesterday, datetime.min.time().replace(hour=5, tzinfo=None))
+            plot_start = plot_start.replace(tzinfo=None)
+            plot_end = datetime.combine(today + timedelta(days=2), datetime.min.time().replace(hour=5, tzinfo=None))
+            plot_end = plot_end.replace(tzinfo=None)
+            today_gas_day_start = datetime.combine(gas_day_today, datetime.min.time().replace(hour=5, tzinfo=None))
+            today_gas_day_start = today_gas_day_start.replace(tzinfo=None)
+            
+            # Fetch actual demand
+            actual_demand = fetch_actual_demand_elexon(gas_day_yesterday, today + timedelta(days=1))
+            
+            # Fetch forecast
+            forecast_demand = fetch_forecast_demand_elexon(plot_start, plot_end)
+            
+            # Fetch historical data for seasonal baseline
+            historical_start = datetime(2023, 1, 1).date()
+            historical_end = gas_day_yesterday - timedelta(days=1)
+            historical_demand = fetch_historical_demand_elexon(historical_start, historical_end)
+            
+            # Calculate seasonal baseline
+            current_month = today.month
+            baseline = calculate_seasonal_baseline_electricity(historical_demand, current_month)
+            baseline_expanded = expand_baseline_to_timeline_electricity(baseline, plot_start, plot_end)
+            
+            # Split actual into yesterday and today
+            if len(actual_demand) > 0:
+                actual_demand['timestamp'] = pd.to_datetime(actual_demand['timestamp'], utc=True).dt.tz_localize(None)
+                
+                yesterday_actual = actual_demand[
+                    actual_demand['timestamp'] < today_gas_day_start
+                ].copy()
+                
+                today_actual = actual_demand[
+                    actual_demand['timestamp'] >= today_gas_day_start
+                ].copy()
+                
+                # Get latest actual time to filter forecast
+                if len(today_actual) > 0:
+                    latest_actual_time = today_actual['timestamp'].max()
+                else:
+                    latest_actual_time = today_gas_day_start
+            else:
+                yesterday_actual = pd.DataFrame()
+                today_actual = pd.DataFrame()
+                latest_actual_time = today_gas_day_start
+            
+            # Filter forecast to only show after latest actual
+            if len(forecast_demand) > 0:
+                forecast_demand['timestamp'] = pd.to_datetime(forecast_demand['timestamp'], utc=True).dt.tz_localize(None)
+                forecast_plot = forecast_demand[
+                    (forecast_demand['timestamp'] > latest_actual_time) & 
+                    (forecast_demand['timestamp'] <= plot_end)
+                ].copy()
+            else:
+                forecast_plot = pd.DataFrame()
+            
+            # Create the plot
+            fig = create_electricity_demand_plot(yesterday_actual, today_actual, forecast_plot, baseline_expanded)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if len(today_actual) > 0:
+                    current_demand = today_actual['demand_mw'].iloc[-1]
+                    st.metric("Current Demand", f"{current_demand:,.0f} MW")
+                else:
+                    st.metric("Current Demand", "N/A")
+            
+            with col2:
+                if len(today_actual) > 0:
+                    avg_today = today_actual['demand_mw'].mean()
+                    st.metric("Average Today", f"{avg_today:,.0f} MW")
+                else:
+                    st.metric("Average Today", "N/A")
+            
+            with col3:
+                if len(forecast_plot) > 0:
+                    peak_forecast = forecast_plot['demand_mw'].max()
+                    st.metric("Peak Forecast", f"{peak_forecast:,.0f} MW")
+                else:
+                    st.metric("Peak Forecast", "N/A")
+            
+            # Display the plot
+            st.plotly_chart(fig, use_container_width=True, theme=None)
     
     # ========================================================================
     # NATIONAL GAS VIEW
     # ========================================================================
-    if data_source == "National Gas":
+    elif data_source == "National Gas":
         demand_df = get_gas_data("demandCategoryGraph")
         supply_df = get_gas_data("supplyCategoryGraph")
         
@@ -1106,12 +1396,12 @@ def main():
             supply_df['interval_seconds'] = (supply_df['next_time'] - supply_df['Timestamp']).dt.total_seconds()
             
             if ng_view == "Table":
-                st.markdown('<div class="section-header"> UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-header">📊 UK Gas Flows - Supply, Demand & Balance</div>', unsafe_allow_html=True)
                 st.markdown('<div class="info-box"><strong>Flow Table</strong> shows the current gas day flows. All values in mcm.</div>', unsafe_allow_html=True)
                 bal = render_nomination_table(demand_df, supply_df)
             
             elif ng_view == "Supply":
-                st.markdown(f'<div class="section-header"> Supply - {supply_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header">📈 Supply - {supply_cat}</div>', unsafe_allow_html=True)
                 col_map = {"LNG": "LNG", "Storage Withdrawal": "Storage Withdrawal", "Beach Terminal": "Beach (UKCS/Norway)", "IC Import": None}
                 
                 if supply_cat == "IC Import":
@@ -1127,7 +1417,7 @@ def main():
                         st.plotly_chart(fig, use_container_width=True, theme=None)
             
             elif ng_view == "Demand":
-                st.markdown(f'<div class="section-header"> Demand - {demand_cat}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-header">📉 Demand - {demand_cat}</div>', unsafe_allow_html=True)
                 col_map = {"CCGT": "Power Station", "Storage Injection": "Storage Injection", "LDZ": "LDZ Offtake", "Industrial": "Industrial", "IC Export": None}
                 
                 if demand_cat == "IC Export":
@@ -1142,13 +1432,13 @@ def main():
                         render_metric_cards([("Average Flow", avg, "mcm"), ("Total So Far", total, "mcm"), ("Current Flow", current, "mcm")])
                         st.plotly_chart(fig, use_container_width=True, theme=None)
         else:
-            st.error("⚠️ Unable to fetch National Gas data. Please try refreshing.")
+            st.error("⚠️ Unable to fetch National Gas data.")
     
     # ========================================================================
     # GASSCO VIEW
     # ========================================================================
     elif data_source == "GASSCO":
-        st.markdown(f'<div class="section-header"> GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">🛢️ GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
         with st.spinner("Fetching GASSCO data..."):
             fields_df, terminal_df = scrape_gassco_data()
@@ -1161,7 +1451,7 @@ def main():
                 st.markdown(f'<div class="info-box"><strong>{len(fields_proc)} active field outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(fields_proc, "Field"), use_container_width=True, theme=None)
                 st.plotly_chart(create_gassco_cumulative_plot(fields_proc, "Field"), use_container_width=True, theme=None)
-                st.markdown("#### Outage Details")
+                st.markdown("#### 📋 Outage Details")
                 render_gassco_table(fields_proc)
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Field Outages</h3><p>No active field outages within 14 days.</p></div>', unsafe_allow_html=True)
@@ -1170,7 +1460,7 @@ def main():
                 st.markdown(f'<div class="info-box"><strong>{len(terminal_proc)} active terminal outage(s)</strong> within 14 days.</div>', unsafe_allow_html=True)
                 st.plotly_chart(create_gassco_timeline_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
                 st.plotly_chart(create_gassco_cumulative_plot(terminal_proc, "Terminal"), use_container_width=True, theme=None)
-                st.markdown("#### Outage Details")
+                st.markdown("#### 📋 Outage Details")
                 render_gassco_table(terminal_proc)
             else:
                 st.markdown('<div class="no-data"><h3>✅ No Terminal Outages</h3><p>No active terminal outages within 14 days.</p></div>', unsafe_allow_html=True)
@@ -1179,12 +1469,12 @@ def main():
     # LNG VESSELS VIEW
     # ========================================================================
     elif data_source == "Milford Haven LNG":
-        st.markdown('<div class="section-header"> LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🚢 LNG Vessels - Milford Haven Port</div>', unsafe_allow_html=True)
         
         st.markdown('''
         <div class="info-box">
             <strong>LNG Vessel Tracking</strong> — Shows confirmed LNG tankers arriving at Milford Haven 
-            (South Hook & Dragon terminals) with vessel details from VesselFinder.
+            (South Hook & Dragon terminals).
         </div>
         ''', unsafe_allow_html=True)
         
@@ -1192,7 +1482,6 @@ def main():
             lng_df = get_lng_vessels_with_details()
         
         if lng_df is not None and len(lng_df) > 0:
-            # Summary metrics
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("LNG Vessels Expected", len(lng_df))
@@ -1208,25 +1497,34 @@ def main():
             if lng_view == "Table View":
                 st.markdown("#### LNG Vessel Arrivals")
                 render_lng_vessel_table(lng_df)
-                
-                csv = lng_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=csv,
-                    file_name=f"lng_vessels_milford_haven_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
-            
             elif lng_view == "Card View":
                 st.markdown("#### LNG Vessel Details")
-                render_lng_vessel_cards(lng_df)
-        
+                for idx, row in lng_df.iterrows():
+                    with st.container(border=True):
+                        ship_col = None
+                        for col in lng_df.columns:
+                            if col.lower() in ['ship', 'vessel', 'name']:
+                                ship_col = col
+                                break
+                        if ship_col:
+                            st.subheader(row[ship_col])
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if pd.notna(row.get('IMO')):
+                                st.markdown(f"**IMO:** {row.get('IMO')}")
+                            if pd.notna(row.get('Flag')):
+                                st.markdown(f"**Flag:** {row.get('Flag')}")
+                        with col2:
+                            if pd.notna(row.get('Deadweight')):
+                                st.markdown(f"**Deadweight:** {row.get('Deadweight')}")
+                            if pd.notna(row.get('GrossTonnage')):
+                                st.markdown(f"**Gross Tonnage:** {row.get('GrossTonnage')}")
         else:
             st.markdown('''
             <div class="no-data">
                 <h3>No LNG Vessels Found</h3>
-                <p>No LNG tankers are currently scheduled to arrive at Milford Haven.</p>
-                <p style="font-size: 0.85rem; margin-top: 1rem;">This may be due to no scheduled arrivals or a temporary issue fetching data from MHPA.</p>
+                <p>No LNG tankers are currently scheduled.</p>
             </div>
             ''', unsafe_allow_html=True)
 
