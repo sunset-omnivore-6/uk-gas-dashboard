@@ -526,11 +526,38 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
     """
     fig = go.Figure()
     
-    # Layer 1: Seasonal uncertainty bands (5-95%)
+    # Convert all data to GW
     if len(baseline_expanded) > 0:
+        baseline_gw = baseline_expanded.copy()
+        for col in ['q95', 'q75', 'q25', 'q05', 'mean_demand']:
+            if col in baseline_gw.columns:
+                baseline_gw[col] = baseline_gw[col] / 1000
+    else:
+        baseline_gw = pd.DataFrame()
+    
+    if len(yesterday_actual) > 0:
+        yesterday_gw = yesterday_actual.copy()
+        yesterday_gw['demand_gw'] = yesterday_gw['demand_mw'] / 1000
+    else:
+        yesterday_gw = pd.DataFrame()
+    
+    if len(today_actual) > 0:
+        today_gw = today_actual.copy()
+        today_gw['demand_gw'] = today_gw['demand_mw'] / 1000
+    else:
+        today_gw = pd.DataFrame()
+    
+    if len(forecast_data) > 0:
+        forecast_gw = forecast_data.copy()
+        forecast_gw['demand_gw'] = forecast_gw['demand_mw'] / 1000
+    else:
+        forecast_gw = pd.DataFrame()
+    
+    # Layer 1: Seasonal uncertainty bands (5-95%)
+    if len(baseline_gw) > 0:
         fig.add_trace(go.Scatter(
-            x=baseline_expanded['timestamp'],
-            y=baseline_expanded['q95'],
+            x=baseline_gw['timestamp'],
+            y=baseline_gw['q95'],
             mode='lines',
             line=dict(width=0),
             showlegend=False,
@@ -538,8 +565,8 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
         ))
         
         fig.add_trace(go.Scatter(
-            x=baseline_expanded['timestamp'],
-            y=baseline_expanded['q05'],
+            x=baseline_gw['timestamp'],
+            y=baseline_gw['q05'],
             mode='lines',
             line=dict(width=0),
             fill='tonexty',
@@ -551,8 +578,8 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
         
         # Layer 2: Seasonal uncertainty bands (25-75%)
         fig.add_trace(go.Scatter(
-            x=baseline_expanded['timestamp'],
-            y=baseline_expanded['q75'],
+            x=baseline_gw['timestamp'],
+            y=baseline_gw['q75'],
             mode='lines',
             line=dict(width=0),
             showlegend=False,
@@ -560,8 +587,8 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
         ))
         
         fig.add_trace(go.Scatter(
-            x=baseline_expanded['timestamp'],
-            y=baseline_expanded['q25'],
+            x=baseline_gw['timestamp'],
+            y=baseline_gw['q25'],
             mode='lines',
             line=dict(width=0),
             fill='tonexty',
@@ -573,54 +600,52 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
         
         # Layer 3: Seasonal mean line
         fig.add_trace(go.Scatter(
-            x=baseline_expanded['timestamp'],
-            y=baseline_expanded['mean_demand'],
+            x=baseline_gw['timestamp'],
+            y=baseline_gw['mean_demand'],
             mode='lines',
             line=dict(color='#2166AC', width=3, dash='dash'),
             name='Seasonal Mean',
             legendgroup='baseline',
-            hovertemplate='<b>Seasonal Mean:</b> %{y:,.0f} MW<extra></extra>'
+            hovertemplate='<b>Seasonal Mean:</b> %{y:.1f} GW<extra></extra>'
         ))
     
     # Layer 4: Yesterday's actual (grey, thinner)
-    if len(yesterday_actual) > 0:
+    if len(yesterday_gw) > 0:
         fig.add_trace(go.Scatter(
-            x=yesterday_actual['timestamp'],
-            y=yesterday_actual['demand_mw'],
+            x=yesterday_gw['timestamp'],
+            y=yesterday_gw['demand_gw'],
             mode='lines',
             line=dict(color='#7F7F7F', width=2.5),
             name='Yesterday Actual',
-            hovertemplate='<b>Yesterday:</b> %{y:,.0f} MW<extra></extra>'
+            hovertemplate='<b>Yesterday:</b> %{y:.1f} GW<extra></extra>'
         ))
     
     # Layer 5: Today's actual (red, thick)
-    if len(today_actual) > 0:
+    if len(today_gw) > 0:
         fig.add_trace(go.Scatter(
-            x=today_actual['timestamp'],
-            y=today_actual['demand_mw'],
+            x=today_gw['timestamp'],
+            y=today_gw['demand_gw'],
             mode='lines',
             line=dict(color='#D6604D', width=4),
             name='Today Actual',
-            hovertemplate='<b>Actual Today:</b> %{y:,.0f} MW<extra></extra>'
+            hovertemplate='<b>Actual Today:</b> %{y:.1f} GW<extra></extra>'
         ))
     
     # Layer 6: Forecast (green, thick)
-    if len(forecast_data) > 0:
+    if len(forecast_gw) > 0:
         fig.add_trace(go.Scatter(
-            x=forecast_data['timestamp'],
-            y=forecast_data['demand_mw'],
+            x=forecast_gw['timestamp'],
+            y=forecast_gw['demand_gw'],
             mode='lines',
             line=dict(color='#4DAF4A', width=4),
             name='Forecast',
-            hovertemplate='<b>Forecast:</b> %{y:,.0f} MW<extra></extra>'
+            hovertemplate='<b>Forecast:</b> %{y:.1f} GW<extra></extra>'
         ))
     
-    # Current time marker - FIX: Convert datetime to timestamp
+    # Current time marker
     now = datetime.utcnow()
-    all_demand = pd.concat([yesterday_actual, today_actual, forecast_data], ignore_index=True)
+    all_demand = pd.concat([yesterday_gw, today_gw, forecast_gw], ignore_index=True)
     if len(all_demand) > 0:
-        y_max_for_label = all_demand['demand_mw'].max()
-        
         fig.add_vline(
             x=now.timestamp() * 1000,  # Convert to milliseconds for Plotly
             line_dash='dot',
@@ -664,7 +689,7 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
             tickformat='%a %d<br>%H:%M'
         ),
         yaxis=dict(
-            title='Demand (MW)',
+            title='Demand (GW)',
             gridcolor='#e2e8f0',
             linecolor='#1e293b',
             linewidth=2,
@@ -833,6 +858,8 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
             (forecast_df['timestamp'] >= gas_day_start) & 
             (forecast_df['timestamp'] <= gas_day_end)
         ].copy()
+        # Convert to GW
+        forecast_plot['wind_forecast_gw'] = forecast_plot['wind_forecast_mw'] / 1000
     else:
         forecast_plot = pd.DataFrame()
     
@@ -840,33 +867,35 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
         actual_plot = actual_df[
             (actual_df['timestamp'] >= gas_day_start)
         ].copy()
+        # Convert to GW
+        actual_plot['wind_actual_gw'] = actual_plot['wind_actual_mw'] / 1000
     else:
         actual_plot = pd.DataFrame()
     
-    # Calculate averages for reference lines
-    avg_actual = actual_plot['wind_actual_mw'].mean() if len(actual_plot) > 0 else 0
-    avg_annual = 9500  # Approximate annual average UK wind generation (MW)
+    # Calculate averages for reference lines (in GW)
+    avg_actual = actual_plot['wind_actual_gw'].mean() if len(actual_plot) > 0 else 0
+    avg_annual = 9.5  # Approximate annual average UK wind generation (GW)
     
     # Layer 1: Forecast (full day - orange dashed, plotted first as background)
     if len(forecast_plot) > 0:
         fig.add_trace(go.Scatter(
             x=forecast_plot['timestamp'],
-            y=forecast_plot['wind_forecast_mw'],
+            y=forecast_plot['wind_forecast_gw'],
             mode='lines',
             line=dict(color='#E69F00', width=2.5, dash='dash'),
             name='Day-ahead Forecast',
-            hovertemplate='<b>Forecast:</b> %{y:,.0f} MW<extra></extra>'
+            hovertemplate='<b>Forecast:</b> %{y:.1f} GW<extra></extra>'
         ))
     
     # Layer 2: Actual wind generation (solid blue line, thicker)
     if len(actual_plot) > 0:
         fig.add_trace(go.Scatter(
             x=actual_plot['timestamp'],
-            y=actual_plot['wind_actual_mw'],
+            y=actual_plot['wind_actual_gw'],
             mode='lines',
             line=dict(color='#2E86AB', width=3.5),
             name='Actual Generation',
-            hovertemplate='<b>Actual:</b> %{y:,.0f} MW<extra></extra>'
+            hovertemplate='<b>Actual:</b> %{y:.1f} GW<extra></extra>'
         ))
     
     # Layer 3: Average today line (green)
@@ -876,7 +905,7 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
             line_dash='dash',
             line_color='#059669',
             line_width=1.5,
-            annotation_text=f"Avg actual: {avg_actual/1000:.1f} GW",
+            annotation_text=f"Avg actual: {avg_actual:.1f} GW",
             annotation_position='right',
             annotation=dict(font=dict(size=11, color='#059669'))
         )
@@ -887,7 +916,7 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
         line_dash='dot',
         line_color='#94a3b8',
         line_width=1.5,
-        annotation_text=f"Annual avg: {avg_annual/1000:.1f} GW",
+        annotation_text=f"Annual avg: {avg_annual:.1f} GW",
         annotation_position='right',
         annotation=dict(font=dict(size=11, color='#94a3b8'))
     )
@@ -936,7 +965,7 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
             range=[gas_day_start, gas_day_end]
         ),
         yaxis=dict(
-            title='Wind Generation (MW)',
+            title='Wind Generation (GW)',
             gridcolor='#e2e8f0',
             linecolor='#1e293b',
             linewidth=2,
@@ -1752,26 +1781,26 @@ def main():
             # Create the plot
             fig = create_electricity_demand_plot(yesterday_actual, today_actual, forecast_plot, baseline_expanded)
             
-            # Display metrics
+            # Display metrics (in GW)
             col1, col2, col3 = st.columns(3)
             with col1:
                 if len(today_actual) > 0:
-                    current_demand = today_actual['demand_mw'].iloc[-1]
-                    st.metric("Current Demand", f"{current_demand:,.0f} MW")
+                    current_demand = today_actual['demand_mw'].iloc[-1] / 1000  # Convert to GW
+                    st.metric("Current Demand", f"{current_demand:.1f} GW")
                 else:
                     st.metric("Current Demand", "N/A")
             
             with col2:
                 if len(today_actual) > 0:
-                    avg_today = today_actual['demand_mw'].mean()
-                    st.metric("Average Today", f"{avg_today:,.0f} MW")
+                    avg_today = today_actual['demand_mw'].mean() / 1000  # Convert to GW
+                    st.metric("Average Today", f"{avg_today:.1f} GW")
                 else:
                     st.metric("Average Today", "N/A")
             
             with col3:
                 if len(forecast_plot) > 0:
-                    peak_forecast = forecast_plot['demand_mw'].max()
-                    st.metric("Peak Forecast", f"{peak_forecast:,.0f} MW")
+                    peak_forecast = forecast_plot['demand_mw'].max() / 1000  # Convert to GW
+                    st.metric("Peak Forecast", f"{peak_forecast:.1f} GW")
                 else:
                     st.metric("Peak Forecast", "N/A")
             
@@ -1796,48 +1825,29 @@ def main():
             gas_day_start = wind_data['gas_day_start']
             gas_day_end = wind_data['gas_day_end']
             
-            # Filter forecast to same time period as actual for fair comparison
-            now = datetime.utcnow()
-            if len(forecast_wind) > 0:
-                # Forecast up to current time (for metrics comparison)
-                forecast_to_now = forecast_wind[
-                    (forecast_wind['timestamp'] >= gas_day_start) &
-                    (forecast_wind['timestamp'] <= now)
-                ].copy()
-            else:
-                forecast_to_now = pd.DataFrame()
-            
             # Display metrics
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 if len(actual_wind) > 0:
-                    latest_wind = actual_wind['wind_actual_mw'].iloc[-1]
-                    st.metric("Current Wind", f"{latest_wind:,.0f} MW")
+                    latest_wind = actual_wind['wind_actual_mw'].iloc[-1] / 1000  # Convert to GW
+                    st.metric("Current Wind", f"{latest_wind:.1f} GW")
                 else:
                     st.metric("Current Wind", "N/A")
             
             with col2:
                 if len(actual_wind) > 0:
-                    avg_wind = actual_wind['wind_actual_mw'].mean()
-                    st.metric("Avg Actual", f"{avg_wind:,.0f} MW")
+                    avg_wind = actual_wind['wind_actual_mw'].mean() / 1000  # Convert to GW
+                    st.metric("Avg Actual", f"{avg_wind:.1f} GW")
                 else:
                     st.metric("Avg Actual", "N/A")
             
             with col3:
                 if len(actual_wind) > 0:
-                    max_wind = actual_wind['wind_actual_mw'].max()
-                    st.metric("Peak Actual", f"{max_wind:,.0f} MW")
+                    max_wind = actual_wind['wind_actual_mw'].max() / 1000  # Convert to GW
+                    st.metric("Peak Actual", f"{max_wind:.1f} GW")
                 else:
                     st.metric("Peak Actual", "N/A")
-            
-            with col4:
-                # Show forecast average for same period as actual (fair comparison)
-                if len(forecast_to_now) > 0:
-                    avg_forecast = forecast_to_now['wind_forecast_mw'].mean()
-                    st.metric("Avg Forecast (same period)", f"{avg_forecast:,.0f} MW")
-                else:
-                    st.metric("Avg Forecast (same period)", "N/A")
             
             # Create and display the plot
             fig = create_wind_generation_plot(actual_wind, forecast_wind, gas_day_start, gas_day_end)
