@@ -225,6 +225,7 @@ st.markdown("""
 def fetch_actual_demand_elexon(from_date, to_date):
     """
     Fetch actual electricity demand from Elexon API.
+    API LIMIT: Maximum 7 days between from_date and to_date.
     
     Args:
         from_date: Start date for data retrieval
@@ -233,6 +234,10 @@ def fetch_actual_demand_elexon(from_date, to_date):
     Returns:
         DataFrame with timestamp and demand_mw columns
     """
+    # Ensure date range doesn't exceed 7 days
+    if (to_date - from_date).days > 7:
+        to_date = from_date + timedelta(days=7)
+    
     url = f"https://data.elexon.co.uk/bmrs/api/v1/demand/outturn/summary?from={from_date.strftime('%Y-%m-%d')}&to={to_date.strftime('%Y-%m-%d')}"
     
     try:
@@ -255,8 +260,15 @@ def fetch_actual_demand_elexon(from_date, to_date):
         
         return result
         
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 400:
+            # Silently handle 400 errors (likely date range issues)
+            return pd.DataFrame()
+        else:
+            st.warning(f"HTTP Error {e.response.status_code} fetching demand data")
+            return pd.DataFrame()
     except Exception as e:
-        st.warning(f"Error fetching actual demand: {str(e)}")
+        # Silently handle other errors to avoid cluttering the UI
         return pd.DataFrame()
 
 
@@ -297,24 +309,33 @@ def fetch_forecast_demand_elexon(from_datetime, to_datetime):
         
         return result
         
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 400:
+            return pd.DataFrame()
+        else:
+            st.warning(f"HTTP Error {e.response.status_code} fetching forecast")
+            return pd.DataFrame()
     except Exception as e:
-        st.warning(f"Error fetching forecast demand: {str(e)}")
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=3600)
-def fetch_historical_demand_elexon(start_date, end_date, chunk_days=30):
+def fetch_historical_demand_elexon(start_date, end_date, chunk_days=7):
     """
     Fetch historical electricity demand data in chunks.
+    API LIMIT: Maximum 7 days per request.
     
     Args:
         start_date: Start date for historical data
         end_date: End date for historical data
-        chunk_days: Number of days per API request (increased to 30 for speed)
+        chunk_days: Number of days per API request (max 7 due to API limit)
         
     Returns:
         DataFrame with timestamp and demand_mw columns
     """
+    # Ensure chunk_days doesn't exceed 7 (API limit)
+    chunk_days = min(chunk_days, 7)
+    
     date_range = pd.date_range(start=start_date, end=end_date, freq=f'{chunk_days}D')
     if date_range[-1] < pd.Timestamp(end_date):
         date_range = date_range.append(pd.DatetimeIndex([end_date]))
@@ -330,6 +351,10 @@ def fetch_historical_demand_elexon(start_date, end_date, chunk_days=30):
         chunk_start = date_range[i].date()
         chunk_end = date_range[i + 1].date()
         
+        # Ensure chunk doesn't exceed 7 days
+        if (chunk_end - chunk_start).days > 7:
+            chunk_end = chunk_start + timedelta(days=7)
+        
         progress_text.text(f"Fetching historical data: {i+1}/{total_chunks} chunks ({chunk_start} to {chunk_end})")
         progress_bar.progress((i + 1) / total_chunks)
         
@@ -338,7 +363,7 @@ def fetch_historical_demand_elexon(start_date, end_date, chunk_days=30):
             all_data.append(chunk_data)
         
         # Minimal rate limiting
-        time.sleep(0.1)
+        time.sleep(0.2)
     
     progress_text.empty()
     progress_bar.empty()
@@ -1313,8 +1338,9 @@ def main():
             # Fetch forecast
             forecast_demand = fetch_forecast_demand_elexon(plot_start, plot_end)
             
-            # Fetch historical data for seasonal baseline - LIMITED TO 6 MONTHS FOR SPEED
-            historical_start = (today - timedelta(days=180)).replace(day=1)  # 6 months back, start of month
+            # Fetch historical data for seasonal baseline - LIMITED TO 3 MONTHS FOR SPEED
+            # (With 7-day API limit, 3 months = ~13 API calls vs 6 months = ~26 calls)
+            historical_start = (today - timedelta(days=90)).replace(day=1)  # 3 months back, start of month
             historical_end = gas_day_yesterday - timedelta(days=1)
             historical_demand = fetch_historical_demand_elexon(historical_start, historical_end)
             
