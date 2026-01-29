@@ -500,14 +500,10 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
     return final_df
 
 
-import html
-import pandas as pd
-import streamlit as st
-
 def render_lng_vessel_table(df: pd.DataFrame):
     """
     Render the LNG vessel table with styling.
-    
+
     Args:
         df: DataFrame containing vessel information
     """
@@ -519,25 +515,7 @@ def render_lng_vessel_table(df: pd.DataFrame):
         </div>
         ''', unsafe_allow_html=True)
         return
-    
-    # Decode HTML entities and prepare dataframe
-    df = df.copy()
-    
-    # Decode HTML entities in string columns
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            df[col] = df[col].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
-    
-    # Convert datetime columns to proper pandas datetime type if they aren't already
-    for col in df.columns:
-        col_lower = col.lower()
-        if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival']):
-            if df[col].dtype != 'datetime64[ns]':
-                try:
-                    df[col] = pd.to_datetime(df[col], errors='coerce')
-                except Exception:
-                    pass  # Leave as-is if conversion fails
-    
+
     # Identify ship name column
     ship_col = None
     for col in df.columns:
@@ -546,7 +524,7 @@ def render_lng_vessel_table(df: pd.DataFrame):
             break
     if not ship_col:
         ship_col = df.columns[0]
-    
+
     # Identify "To" / destination column explicitly
     to_col = None
     for col in df.columns:
@@ -554,7 +532,7 @@ def render_lng_vessel_table(df: pd.DataFrame):
         if col_lower == 'to':
             to_col = col
             break
-    
+
     # If no exact "To" column, check for destination/berth/terminal
     if to_col is None:
         for col in df.columns:
@@ -562,32 +540,32 @@ def render_lng_vessel_table(df: pd.DataFrame):
             if any(term in col_lower for term in ['destination', 'berth', 'terminal']):
                 to_col = col
                 break
-    
+
     # Build display columns - ship name first
     display_cols = [ship_col]
-    
+
     # Add "To" column early if found
     if to_col and to_col not in display_cols:
         display_cols.append(to_col)
-    
+
     # Add schedule/origin columns
     for col in df.columns:
         col_lower = col.lower()
         if any(term in col_lower for term in ['date', 'time', 'eta', 'arrival', 'from', 'agent']):
             if col not in display_cols:
                 display_cols.append(col)
-    
+
     # Add vessel details columns
     detail_cols = ['IMO', 'Flag', 'Deadweight', 'GrossTonnage']
     for col in detail_cols:
         if col in df.columns and col not in display_cols:
             display_cols.append(col)
-    
+
     # Filter to existing columns only
     display_cols = [col for col in display_cols if col in df.columns]
-    
+
     display_df = df[display_cols].copy()
-    
+
     # Rename columns for better display
     rename_map = {
         'GrossTonnage': 'Gross Tonnage',
@@ -595,9 +573,9 @@ def render_lng_vessel_table(df: pd.DataFrame):
     # Rename "To" column to "Destination" for clarity if it exists
     if to_col and to_col.lower() == 'to':
         rename_map[to_col] = 'Destination'
-    
+
     display_df = display_df.rename(columns=rename_map)
-    
+
     # Build column config dynamically
     column_config = {
         ship_col: st.column_config.TextColumn("Vessel Name", width="medium"),
@@ -607,25 +585,7 @@ def render_lng_vessel_table(df: pd.DataFrame):
         "Gross Tonnage": st.column_config.TextColumn("GT", width="small"),
         "Destination": st.column_config.TextColumn("Destination", width="medium"),
     }
-    
-    # Add datetime column config for any date/time columns
-    for col in display_df.columns:
-        col_lower = col.lower()
-        if display_df[col].dtype == 'datetime64[ns]':
-            # Format datetime columns as "04 Feb 2026 00:01"
-            if any(term in col_lower for term in ['eta', 'arrival']):
-                column_config[col] = st.column_config.DatetimeColumn(
-                    col,
-                    format="DD MMM YYYY HH:mm",
-                    width="medium"
-                )
-            elif any(term in col_lower for term in ['date', 'time']):
-                column_config[col] = st.column_config.DatetimeColumn(
-                    col,
-                    format="DD MMM YYYY HH:mm",
-                    width="medium"
-                )
-    
+
     st.dataframe(
         display_df,
         use_container_width=True,
