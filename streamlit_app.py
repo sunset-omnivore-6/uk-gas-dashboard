@@ -303,14 +303,14 @@ def fetch_forecast_demand_elexon(from_datetime, to_datetime):
 
 
 @st.cache_data(ttl=3600)
-def fetch_historical_demand_elexon(start_date, end_date, chunk_days=6):
+def fetch_historical_demand_elexon(start_date, end_date, chunk_days=30):
     """
     Fetch historical electricity demand data in chunks.
     
     Args:
         start_date: Start date for historical data
         end_date: End date for historical data
-        chunk_days: Number of days per API request
+        chunk_days: Number of days per API request (increased to 30 for speed)
         
     Returns:
         DataFrame with timestamp and demand_mw columns
@@ -320,17 +320,28 @@ def fetch_historical_demand_elexon(start_date, end_date, chunk_days=6):
         date_range = date_range.append(pd.DatetimeIndex([end_date]))
     
     all_data = []
+    total_chunks = len(date_range) - 1
     
-    for i in range(len(date_range) - 1):
+    # Create a progress container
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    for i in range(total_chunks):
         chunk_start = date_range[i].date()
         chunk_end = date_range[i + 1].date()
+        
+        progress_text.text(f"Fetching historical data: {i+1}/{total_chunks} chunks ({chunk_start} to {chunk_end})")
+        progress_bar.progress((i + 1) / total_chunks)
         
         chunk_data = fetch_actual_demand_elexon(chunk_start, chunk_end)
         if len(chunk_data) > 0:
             all_data.append(chunk_data)
         
-        # Rate limiting
-        time.sleep(0.5)
+        # Minimal rate limiting
+        time.sleep(0.1)
+    
+    progress_text.empty()
+    progress_bar.empty()
     
     if len(all_data) == 0:
         return pd.DataFrame()
@@ -344,6 +355,7 @@ def fetch_historical_demand_elexon(start_date, end_date, chunk_days=6):
 def calculate_seasonal_baseline_electricity(historical_data, target_month, min_observations=5):
     """
     Calculate seasonal baseline statistics for electricity demand.
+    OPTIMIZED: Uses vectorized operations for speed.
     
     Args:
         historical_data: DataFrame with timestamp and demand_mw columns
@@ -356,38 +368,41 @@ def calculate_seasonal_baseline_electricity(historical_data, target_month, min_o
     if len(historical_data) == 0:
         return pd.DataFrame()
     
-    # Create gas day (5am-5am) and classify weekday/weekend
-    historical_data = historical_data.copy()
-    historical_data['date'] = historical_data['timestamp'].dt.date
-    historical_data['hour'] = historical_data['timestamp'].dt.hour
+    # Vectorized operations for speed
+    df = historical_data.copy()
     
-    # Gas day: if hour < 5, belongs to previous day
-    historical_data['gas_day'] = historical_data.apply(
-        lambda row: row['date'] - timedelta(days=1) if row['hour'] < 5 else row['date'],
-        axis=1
-    )
-    historical_data['gas_day'] = pd.to_datetime(historical_data['gas_day'])
-    historical_data['month'] = historical_data['gas_day'].dt.month
-    historical_data['day_type'] = historical_data['gas_day'].dt.day_name().apply(
-        lambda x: 'Weekend' if x in ['Saturday', 'Sunday'] else 'Weekday'
-    )
-    historical_data['hour_bin'] = historical_data['timestamp'].dt.hour
+    # Convert to datetime if needed
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+    
+    # Extract date and hour
+    df['hour'] = df['timestamp'].dt.hour
+    df['date'] = df['timestamp'].dt.date
+    
+    # Gas day calculation (vectorized)
+    df['gas_day'] = pd.to_datetime(df['date']) - pd.to_timedelta((df['hour'] < 5).astype(int), unit='D')
+    
+    # Month and day type
+    df['month'] = df['gas_day'].dt.month
+    df['day_name'] = df['gas_day'].dt.day_name()
+    df['day_type'] = df['day_name'].apply(lambda x: 'Weekend' if x in ['Saturday', 'Sunday'] else 'Weekday')
+    df['hour_bin'] = df['hour']
     
     # Filter to target month
-    month_data = historical_data[historical_data['month'] == target_month].copy()
+    month_data = df[df['month'] == target_month].copy()
     
     if len(month_data) == 0:
         return pd.DataFrame()
     
-    # Calculate statistics by day_type and hour_bin
-    baseline = month_data.groupby(['day_type', 'hour_bin']).agg(
-        mean_demand=('demand_mw', 'mean'),
-        q05=('demand_mw', lambda x: x.quantile(0.05)),
-        q25=('demand_mw', lambda x: x.quantile(0.25)),
-        q75=('demand_mw', lambda x: x.quantile(0.75)),
-        q95=('demand_mw', lambda x: x.quantile(0.95)),
-        n_obs=('demand_mw', 'count')
-    ).reset_index()
+    # Calculate statistics using groupby (vectorized)
+    baseline = month_data.groupby(['day_type', 'hour_bin'])['demand_mw'].agg([
+        ('mean_demand', 'mean'),
+        ('q05', lambda x: x.quantile(0.05)),
+        ('q25', lambda x: x.quantile(0.25)),
+        ('q75', lambda x: x.quantile(0.75)),
+        ('q95', lambda x: x.quantile(0.95)),
+        ('n_obs', 'count')
+    ]).reset_index()
     
     # Filter out bins with too few observations
     baseline = baseline[baseline['n_obs'] >= min_observations].copy()
@@ -398,6 +413,7 @@ def calculate_seasonal_baseline_electricity(historical_data, target_month, min_o
 def expand_baseline_to_timeline_electricity(baseline, start_time, end_time):
     """
     Expand baseline statistics to a full timeline with smoothing.
+    OPTIMIZED: Uses vectorized operations for speed.
     
     Args:
         baseline: DataFrame with baseline statistics
@@ -414,18 +430,15 @@ def expand_baseline_to_timeline_electricity(baseline, start_time, end_time):
     time_grid = pd.date_range(start=start_time, end=end_time, freq='30T')
     
     expanded = pd.DataFrame({'timestamp': time_grid})
-    expanded['date'] = expanded['timestamp'].dt.date
-    expanded['hour_val'] = expanded['timestamp'].dt.hour
     
-    # Determine gas day and day type
-    expanded['gas_day'] = expanded.apply(
-        lambda row: row['date'] - timedelta(days=1) if row['hour_val'] < 5 else row['date'],
-        axis=1
-    )
-    expanded['gas_day'] = pd.to_datetime(expanded['gas_day'])
-    expanded['day_type'] = expanded['gas_day'].dt.day_name().apply(
-        lambda x: 'Weekend' if x in ['Saturday', 'Sunday'] else 'Weekday'
-    )
+    # Vectorized operations
+    expanded['hour_val'] = expanded['timestamp'].dt.hour
+    expanded['date'] = expanded['timestamp'].dt.date
+    
+    # Gas day calculation (vectorized)
+    expanded['gas_day'] = pd.to_datetime(expanded['date']) - pd.to_timedelta((expanded['hour_val'] < 5).astype(int), unit='D')
+    expanded['day_name'] = expanded['gas_day'].dt.day_name()
+    expanded['day_type'] = expanded['day_name'].apply(lambda x: 'Weekend' if x in ['Saturday', 'Sunday'] else 'Weekday')
     expanded['hour_bin'] = expanded['hour_val']
     
     # Merge with baseline
@@ -433,10 +446,14 @@ def expand_baseline_to_timeline_electricity(baseline, start_time, end_time):
     expanded = expanded.dropna(subset=['mean_demand'])
     expanded = expanded.sort_values('timestamp').reset_index(drop=True)
     
-    # Apply rolling smoothing
+    if len(expanded) == 0:
+        return pd.DataFrame()
+    
+    # Apply rolling smoothing (vectorized)
     smooth_window = 5
     for col in ['mean_demand', 'q05', 'q25', 'q75', 'q95']:
-        expanded[col] = expanded[col].rolling(window=smooth_window, center=True, min_periods=1).mean()
+        if col in expanded.columns:
+            expanded[col] = expanded[col].rolling(window=smooth_window, center=True, min_periods=1).mean()
     
     # Forward/backward fill any remaining NaNs
     expanded = expanded.ffill().bfill()
@@ -543,14 +560,14 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
             hovertemplate='<b>Forecast:</b> %{y:,.0f} MW<extra></extra>'
         ))
     
-    # Current time marker
+    # Current time marker - FIX: Convert datetime to timestamp
     now = datetime.utcnow()
-    all_demand = pd.concat([yesterday_actual, today_actual, forecast_data])
+    all_demand = pd.concat([yesterday_actual, today_actual, forecast_data], ignore_index=True)
     if len(all_demand) > 0:
         y_max_for_label = all_demand['demand_mw'].max()
         
         fig.add_vline(
-            x=now,
+            x=now.timestamp() * 1000,  # Convert to milliseconds for Plotly
             line_dash='dot',
             line_color='grey',
             line_width=2,
@@ -1296,8 +1313,8 @@ def main():
             # Fetch forecast
             forecast_demand = fetch_forecast_demand_elexon(plot_start, plot_end)
             
-            # Fetch historical data for seasonal baseline
-            historical_start = datetime(2023, 1, 1).date()
+            # Fetch historical data for seasonal baseline - LIMITED TO 6 MONTHS FOR SPEED
+            historical_start = (today - timedelta(days=180)).replace(day=1)  # 6 months back, start of month
             historical_end = gas_day_yesterday - timedelta(days=1)
             historical_demand = fetch_historical_demand_elexon(historical_start, historical_end)
             
