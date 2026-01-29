@@ -565,9 +565,6 @@ def render_lng_vessel_table(df: pd.DataFrame):
     
     display_df = df[display_cols].copy()
 
-    display_df[ship_col] = display_df[ship_col].map(
-    lambda x: html.unescape(x) if isinstance(x, str) else x
-    )
     
     # Rename columns for better display
     rename_map = {
