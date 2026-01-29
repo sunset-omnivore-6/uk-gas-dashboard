@@ -213,6 +213,44 @@ st.markdown("""
         padding: 0.75rem 1.5rem;
         font-weight: 600;
     }
+    
+    .loading-container {
+        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        border: 1px solid #0097a9;
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        margin: 1rem 0;
+    }
+    
+    .loading-container h3 {
+        color: #0097a9;
+        margin-bottom: 1rem;
+    }
+    
+    .loading-status {
+        display: flex;
+        justify-content: space-around;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    
+    .loading-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: #333;
+    }
+    
+    .loading-item.complete {
+        color: #059669;
+    }
+    
+    .loading-item.pending {
+        color: #6b7280;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -265,7 +303,6 @@ def fetch_actual_demand_elexon(from_date, to_date):
             # Silently handle 400 errors (likely date range issues)
             return pd.DataFrame()
         else:
-            st.warning(f"HTTP Error {e.response.status_code} fetching demand data")
             return pd.DataFrame()
     except Exception as e:
         # Silently handle other errors to avoid cluttering the UI
@@ -313,7 +350,6 @@ def fetch_forecast_demand_elexon(from_datetime, to_datetime):
         if e.response.status_code == 400:
             return pd.DataFrame()
         else:
-            st.warning(f"HTTP Error {e.response.status_code} fetching forecast")
             return pd.DataFrame()
     except Exception as e:
         return pd.DataFrame()
@@ -343,10 +379,6 @@ def fetch_historical_demand_elexon(start_date, end_date, chunk_days=7):
     all_data = []
     total_chunks = len(date_range) - 1
     
-    # Create a progress container
-    progress_text = st.empty()
-    progress_bar = st.progress(0)
-    
     for i in range(total_chunks):
         chunk_start = date_range[i].date()
         chunk_end = date_range[i + 1].date()
@@ -355,18 +387,12 @@ def fetch_historical_demand_elexon(start_date, end_date, chunk_days=7):
         if (chunk_end - chunk_start).days > 7:
             chunk_end = chunk_start + timedelta(days=7)
         
-        progress_text.text(f"Fetching historical data: {i+1}/{total_chunks} chunks ({chunk_start} to {chunk_end})")
-        progress_bar.progress((i + 1) / total_chunks)
-        
         chunk_data = fetch_actual_demand_elexon(chunk_start, chunk_end)
         if len(chunk_data) > 0:
             all_data.append(chunk_data)
         
         # Minimal rate limiting
         time.sleep(0.2)
-    
-    progress_text.empty()
-    progress_bar.empty()
     
     if len(all_data) == 0:
         return pd.DataFrame()
@@ -770,7 +796,6 @@ def get_milford_haven_vessels() -> pd.DataFrame:
         
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code != 200:
-            st.error(f"Failed to fetch MHPA data: HTTP {response.status_code}")
             return None
         
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -780,7 +805,6 @@ def get_milford_haven_vessels() -> pd.DataFrame:
             table = soup.find('table')
         
         if not table:
-            st.error("Could not find vessel table on MHPA website")
             return None
         
         headers_row = table.find('thead')
@@ -812,7 +836,6 @@ def get_milford_haven_vessels() -> pd.DataFrame:
         return df
         
     except Exception as e:
-        st.error(f"Error fetching MHPA data: {str(e)}")
         return None
 
 
@@ -831,7 +854,6 @@ def get_lng_vessels_with_details() -> pd.DataFrame:
             break
     
     if ship_type_col is None:
-        st.warning("Could not identify ship type column.")
         return vessels_df
     
     lng_df = vessels_df[
@@ -1251,10 +1273,158 @@ def render_gassco_table(df):
 
 
 # ============================================================================
+# PRELOADING FUNCTIONS - EAGER LOADING ON APP START
+# ============================================================================
+
+@st.cache_data(ttl=120, show_spinner=False)
+def preload_national_gas_data():
+    """Preload National Gas demand and supply data."""
+    demand_df = get_gas_data("demandCategoryGraph")
+    supply_df = get_gas_data("supplyCategoryGraph")
+    return demand_df, supply_df
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def preload_gassco_data():
+    """Preload GASSCO REMIT data."""
+    fields_df, terminal_df = scrape_gassco_data()
+    fields_proc = process_remit_data(fields_df)
+    terminal_proc = process_remit_data(terminal_df)
+    return fields_proc, terminal_proc
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def preload_lng_data():
+    """Preload LNG vessel data (basic - without VesselFinder details to avoid slow scraping)."""
+    return get_milford_haven_vessels()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def preload_elexon_data():
+    """Preload Elexon electricity demand data."""
+    today = datetime.utcnow().date()
+    current_hour = datetime.utcnow().hour
+    
+    # Gas day logic
+    if current_hour < 5:
+        gas_day_today = today - timedelta(days=1)
+    else:
+        gas_day_today = today
+    
+    gas_day_yesterday = gas_day_today - timedelta(days=1)
+    
+    # Plot window
+    plot_start = datetime.combine(gas_day_yesterday, datetime.min.time().replace(hour=5, tzinfo=None))
+    plot_end = datetime.combine(gas_day_today + timedelta(days=2), datetime.min.time().replace(hour=5, tzinfo=None))
+    today_gas_day_start = datetime.combine(gas_day_today, datetime.min.time().replace(hour=5, tzinfo=None))
+    
+    # Fetch actual demand
+    actual_demand = fetch_actual_demand_elexon(gas_day_yesterday, today + timedelta(days=1))
+    
+    # Fetch forecast
+    forecast_demand = fetch_forecast_demand_elexon(plot_start, plot_end)
+    
+    # Fetch historical data for seasonal baseline - 1 YEAR
+    historical_start = (today - timedelta(days=365)).replace(day=1)
+    historical_end = gas_day_yesterday - timedelta(days=1)
+    historical_demand = fetch_historical_demand_elexon(historical_start, historical_end)
+    
+    # Calculate seasonal baseline
+    current_month = today.month
+    baseline = calculate_seasonal_baseline_electricity(historical_demand, current_month)
+    baseline_expanded = expand_baseline_to_timeline_electricity(baseline, plot_start, plot_end)
+    
+    return {
+        'actual_demand': actual_demand,
+        'forecast_demand': forecast_demand,
+        'baseline_expanded': baseline_expanded,
+        'plot_start': plot_start,
+        'plot_end': plot_end,
+        'today_gas_day_start': today_gas_day_start,
+        'gas_day_yesterday': gas_day_yesterday,
+        'gas_day_today': gas_day_today
+    }
+
+
+def preload_all_data():
+    """
+    Preload all data sources on app start.
+    This function runs once when the app loads and caches results.
+    Returns a dictionary with all preloaded data.
+    """
+    # Use session state to track if we've shown the loading screen
+    if 'data_preloaded' not in st.session_state:
+        st.session_state.data_preloaded = False
+    
+    if st.session_state.data_preloaded:
+        # Data already preloaded, just return from cache
+        return {
+            'national_gas': preload_national_gas_data(),
+            'gassco': preload_gassco_data(),
+            'lng': preload_lng_data(),
+            'elexon': preload_elexon_data()
+        }
+    
+    # Show loading UI
+    loading_container = st.empty()
+    
+    with loading_container.container():
+        st.markdown('''
+        <div class="loading-container">
+            <h3>⚡ Loading Market Data...</h3>
+            <p>Fetching data from all sources for instant view switching</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Load National Gas data
+        status_text.text("📊 Loading National Gas flows...")
+        progress_bar.progress(10)
+        national_gas_data = preload_national_gas_data()
+        progress_bar.progress(25)
+        
+        # Load GASSCO data
+        status_text.text("🔧 Loading GASSCO outages...")
+        gassco_data = preload_gassco_data()
+        progress_bar.progress(50)
+        
+        # Load LNG vessel data
+        status_text.text("🚢 Loading Milford Haven vessels...")
+        lng_data = preload_lng_data()
+        progress_bar.progress(65)
+        
+        # Load Elexon data (this is the slowest due to historical fetch)
+        status_text.text("⚡ Loading Elexon electricity data (historical baseline)...")
+        elexon_data = preload_elexon_data()
+        progress_bar.progress(100)
+        
+        status_text.text("✅ All data loaded!")
+        time.sleep(0.5)
+    
+    # Clear the loading UI
+    loading_container.empty()
+    
+    # Mark as preloaded
+    st.session_state.data_preloaded = True
+    
+    return {
+        'national_gas': national_gas_data,
+        'gassco': gassco_data,
+        'lng': lng_data,
+        'elexon': elexon_data
+    }
+
+
+# ============================================================================
 # MAIN APPLICATION
 # ============================================================================
 
 def main():
+    # EAGER LOADING: Preload all data on app start
+    preloaded_data = preload_all_data()
+    
     with st.sidebar:
         st.markdown('<div style="text-align:center;padding:1rem 0;"><h1 style="font-size:1.6rem;margin:0;color:#0097a9 !important;">UK Energy Market</h1><p style="font-size:0.85rem;opacity:0.8;margin-top:0.5rem;color:#0097a9 !important;">Real-time Dashboard</p></div>', unsafe_allow_html=True)
         st.markdown("---")
@@ -1293,6 +1463,7 @@ def main():
         st.markdown("---")
         if st.button("Refresh Data", use_container_width=True):
             st.cache_data.clear()
+            st.session_state.data_preloaded = False
             st.rerun()
         
         st.markdown(f'<div style="text-align:center;padding:1rem 0;font-size:0.8rem;color:#718096;">Last updated:<br>{datetime.now().strftime("%H:%M:%S %d/%m/%Y")}</div>', unsafe_allow_html=True)
@@ -1312,131 +1483,92 @@ def main():
         </div>
         ''', unsafe_allow_html=True)
         
-        with st.spinner("Fetching electricity demand data from Elexon..."):
-            # Define time boundaries
-            today = datetime.utcnow().date()
-            current_hour = datetime.utcnow().hour
+        # Use preloaded data
+        elexon_data = preloaded_data['elexon']
+        
+        actual_demand = elexon_data['actual_demand']
+        forecast_demand = elexon_data['forecast_demand']
+        baseline_expanded = elexon_data['baseline_expanded']
+        plot_start = elexon_data['plot_start']
+        plot_end = elexon_data['plot_end']
+        today_gas_day_start = elexon_data['today_gas_day_start']
+        
+        # Split actual into yesterday and today
+        if len(actual_demand) > 0:
+            actual_demand_copy = actual_demand.copy()
+            actual_demand_copy['timestamp'] = pd.to_datetime(actual_demand_copy['timestamp'], utc=True).dt.tz_localize(None)
             
-            # Gas day logic: if before 5am, gas day started yesterday
-            if current_hour < 5:
-                gas_day_today = today - timedelta(days=1)
+            # Filter to only show data from plot_start (5am yesterday) onwards
+            actual_demand_copy = actual_demand_copy[actual_demand_copy['timestamp'] >= plot_start].copy()
+            
+            yesterday_actual = actual_demand_copy[
+                actual_demand_copy['timestamp'] < today_gas_day_start
+            ].copy()
+            
+            today_actual = actual_demand_copy[
+                actual_demand_copy['timestamp'] >= today_gas_day_start
+            ].copy()
+            
+            # Get latest actual time to filter forecast
+            if len(today_actual) > 0:
+                latest_actual_time = today_actual['timestamp'].max()
             else:
-                gas_day_today = today
-            
-            gas_day_yesterday = gas_day_today - timedelta(days=1)
-            
-            # Plot window: yesterday 05:00 to today+2 05:00 (48 hours from yesterday's gas day start)
-            plot_start = datetime.combine(gas_day_yesterday, datetime.min.time().replace(hour=5, tzinfo=None))
-            plot_start = plot_start.replace(tzinfo=None)
-            plot_end = datetime.combine(gas_day_today + timedelta(days=2), datetime.min.time().replace(hour=5, tzinfo=None))
-            plot_end = plot_end.replace(tzinfo=None)
-            today_gas_day_start = datetime.combine(gas_day_today, datetime.min.time().replace(hour=5, tzinfo=None))
-            today_gas_day_start = today_gas_day_start.replace(tzinfo=None)
-            
-            # Fetch actual demand
-            actual_demand = fetch_actual_demand_elexon(gas_day_yesterday, today + timedelta(days=1))
-            
-            # Fetch forecast
-            forecast_demand = fetch_forecast_demand_elexon(plot_start, plot_end)
-            
-            # Fetch historical data for seasonal baseline - 1 YEAR FOR FULL SEASONAL CYCLE
-            # (With 7-day API limit, 1 year = ~52 API calls, takes longer but more accurate)
-            historical_start = (today - timedelta(days=365)).replace(day=1)  # 1 year back, start of month
-            historical_end = gas_day_yesterday - timedelta(days=1)
-            historical_demand = fetch_historical_demand_elexon(historical_start, historical_end)
-            
-            # Calculate seasonal baseline
-            current_month = today.month
-            baseline = calculate_seasonal_baseline_electricity(historical_demand, current_month)
-            baseline_expanded = expand_baseline_to_timeline_electricity(baseline, plot_start, plot_end)
-            
-            # Split actual into yesterday and today
-            if len(actual_demand) > 0:
-                actual_demand['timestamp'] = pd.to_datetime(actual_demand['timestamp'], utc=True).dt.tz_localize(None)
-                
-                # Filter to only show data from plot_start (5am yesterday) onwards
-                actual_demand = actual_demand[actual_demand['timestamp'] >= plot_start].copy()
-                
-                yesterday_actual = actual_demand[
-                    actual_demand['timestamp'] < today_gas_day_start
-                ].copy()
-                
-                today_actual = actual_demand[
-                    actual_demand['timestamp'] >= today_gas_day_start
-                ].copy()
-                
-                # Get latest actual time to filter forecast
-                if len(today_actual) > 0:
-                    latest_actual_time = today_actual['timestamp'].max()
-                else:
-                    latest_actual_time = today_gas_day_start
-            else:
-                yesterday_actual = pd.DataFrame()
-                today_actual = pd.DataFrame()
                 latest_actual_time = today_gas_day_start
-            
-            # Filter forecast to only show after latest actual
-            if len(forecast_demand) > 0:
-                forecast_demand['timestamp'] = pd.to_datetime(forecast_demand['timestamp'], utc=True).dt.tz_localize(None)
-                forecast_plot = forecast_demand[
-                    (forecast_demand['timestamp'] > latest_actual_time) & 
-                    (forecast_demand['timestamp'] <= plot_end)
-                ].copy()
+        else:
+            yesterday_actual = pd.DataFrame()
+            today_actual = pd.DataFrame()
+            latest_actual_time = today_gas_day_start
+        
+        # Filter forecast to only show after latest actual
+        if len(forecast_demand) > 0:
+            forecast_copy = forecast_demand.copy()
+            forecast_copy['timestamp'] = pd.to_datetime(forecast_copy['timestamp'], utc=True).dt.tz_localize(None)
+            forecast_plot = forecast_copy[
+                (forecast_copy['timestamp'] > latest_actual_time) & 
+                (forecast_copy['timestamp'] <= plot_end)
+            ].copy()
+        else:
+            forecast_plot = pd.DataFrame()
+        
+        # Create the plot
+        fig = create_electricity_demand_plot(yesterday_actual, today_actual, forecast_plot, baseline_expanded)
+        
+        # Display metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if len(today_actual) > 0:
+                current_demand = today_actual['demand_mw'].iloc[-1]
+                st.metric("Current Demand", f"{current_demand:,.0f} MW")
             else:
-                forecast_plot = pd.DataFrame()
-            
-            # Create the plot
-            fig = create_electricity_demand_plot(yesterday_actual, today_actual, forecast_plot, baseline_expanded)
-            
-            # Display metrics
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if len(today_actual) > 0:
-                    current_demand = today_actual['demand_mw'].iloc[-1]
-                    st.metric("Current Demand", f"{current_demand:,.0f} MW")
-                else:
-                    st.metric("Current Demand", "N/A")
-            
-            with col2:
-                if len(today_actual) > 0:
-                    avg_today = today_actual['demand_mw'].mean()
-                    st.metric("Average Today", f"{avg_today:,.0f} MW")
-                else:
-                    st.metric("Average Today", "N/A")
-            
-            with col3:
-                if len(forecast_plot) > 0:
-                    peak_forecast = forecast_plot['demand_mw'].max()
-                    st.metric("Peak Forecast", f"{peak_forecast:,.0f} MW")
-                else:
-                    st.metric("Peak Forecast", "N/A")
-            
-            # Display the plot
-            st.plotly_chart(fig, use_container_width=True, theme=None)
+                st.metric("Current Demand", "N/A")
+        
+        with col2:
+            if len(today_actual) > 0:
+                avg_today = today_actual['demand_mw'].mean()
+                st.metric("Average Today", f"{avg_today:,.0f} MW")
+            else:
+                st.metric("Average Today", "N/A")
+        
+        with col3:
+            if len(forecast_plot) > 0:
+                peak_forecast = forecast_plot['demand_mw'].max()
+                st.metric("Peak Forecast", f"{peak_forecast:,.0f} MW")
+            else:
+                st.metric("Peak Forecast", "N/A")
+        
+        # Display the plot
+        st.plotly_chart(fig, use_container_width=True, theme=None)
     
     # ========================================================================
     # NATIONAL GAS VIEW
     # ========================================================================
     elif data_source == "National Gas":
-        with st.spinner("Fetching National Gas data..."):
-            progress_bar = st.progress(0)
-            progress_text = st.empty()
-            
-            progress_text.text("Fetching demand data...")
-            progress_bar.progress(25)
-            demand_df = get_gas_data("demandCategoryGraph")
-            
-            progress_text.text("Fetching supply data...")
-            progress_bar.progress(75)
-            supply_df = get_gas_data("supplyCategoryGraph")
-            
-            progress_text.empty()
-            progress_bar.progress(100)
-            time.sleep(0.3)
-            progress_bar.empty()
+        # Use preloaded data
+        demand_df, supply_df = preloaded_data['national_gas']
         
         if demand_df is not None and supply_df is not None:
             if 'Storage' in demand_df.columns:
+                demand_df = demand_df.copy()
                 demand_df.rename(columns={'Storage': 'Storage Injection'}, inplace=True)
             
             n = len(demand_df)
@@ -1444,6 +1576,7 @@ def main():
             start = datetime.combine(today, datetime.min.time().replace(hour=5))
             ts = [start + timedelta(minutes=2*i) for i in range(n)]
             
+            demand_df = demand_df.copy()
             demand_df['Timestamp'] = ts
             demand_df = demand_df.sort_values('Timestamp').reset_index(drop=True)
             demand_df['next_time'] = demand_df['Timestamp'].shift(-1).fillna(demand_df['Timestamp'].iloc[-1] + timedelta(minutes=2))
@@ -1451,6 +1584,7 @@ def main():
             
             n_s = len(supply_df)
             ts_s = [start + timedelta(minutes=2*i) for i in range(n_s)]
+            supply_df = supply_df.copy()
             supply_df['Timestamp'] = ts_s
             supply_df = supply_df.sort_values('Timestamp').reset_index(drop=True)
             supply_df['next_time'] = supply_df['Timestamp'].shift(-1).fillna(supply_df['Timestamp'].iloc[-1] + timedelta(minutes=2))
@@ -1501,22 +1635,8 @@ def main():
     elif data_source == "GASSCO":
         st.markdown(f'<div class="section-header">GASSCO - {gassco_view}</div>', unsafe_allow_html=True)
         
-        progress_bar = st.progress(0)
-        progress_text = st.empty()
-        
-        progress_text.text("Fetching GASSCO REMIT data...")
-        progress_bar.progress(50)
-        fields_df, terminal_df = scrape_gassco_data()
-        
-        progress_text.text("Processing outage data...")
-        progress_bar.progress(75)
-        fields_proc = process_remit_data(fields_df)
-        terminal_proc = process_remit_data(terminal_df)
-        
-        progress_text.empty()
-        progress_bar.progress(100)
-        time.sleep(0.3)
-        progress_bar.empty()
+        # Use preloaded data
+        fields_proc, terminal_proc = preloaded_data['gassco']
         
         if gassco_view == "Field Outages":
             if fields_proc is not None and len(fields_proc) > 0:
@@ -1550,32 +1670,69 @@ def main():
         </div>
         ''', unsafe_allow_html=True)
         
-        progress_bar = st.progress(0)
-        progress_text = st.empty()
+        # Use preloaded basic vessel data, then enrich with details if needed
+        vessels_df = preloaded_data['lng']
         
-        progress_text.text("Fetching vessel arrival data from MHPA...")
-        progress_bar.progress(50)
-        lng_df = get_lng_vessels_with_details()
-        
-        progress_text.empty()
-        progress_bar.progress(100)
-        time.sleep(0.3)
-        progress_bar.empty()
-        
-        if lng_df is not None and len(lng_df) > 0:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("LNG Vessels Expected", len(lng_df))
-            with col2:
-                found_count = len(lng_df[lng_df.get('Status', '') == 'Found']) if 'Status' in lng_df.columns else 0
-                st.metric("Vessel Details Found", found_count)
-            with col3:
-                unique_flags = lng_df['Flag'].dropna().nunique() if 'Flag' in lng_df.columns else 0
-                st.metric("Unique Flags", unique_flags)
+        if vessels_df is not None and len(vessels_df) > 0:
+            # Filter for LNG vessels and get details (this part still needs to fetch VesselFinder details)
+            ship_type_col = None
+            for col in vessels_df.columns:
+                if 'type' in col.lower() or 'ship type' in col.lower():
+                    ship_type_col = col
+                    break
             
-            st.markdown("---")
-            st.markdown("#### LNG Vessel Arrivals")
-            render_lng_vessel_table(lng_df)
+            if ship_type_col:
+                lng_df = vessels_df[
+                    vessels_df[ship_type_col].str.lower().str.contains('lng', na=False)
+                ].copy()
+                
+                if len(lng_df) > 0:
+                    # Fetch vessel details (cached per vessel)
+                    ship_col = None
+                    for col in vessels_df.columns:
+                        if col.lower() in ['ship', 'vessel', 'name', 'vessel name', 'ship name']:
+                            ship_col = col
+                            break
+                    if ship_col is None:
+                        ship_col = vessels_df.columns[0]
+                    
+                    with st.spinner("Fetching vessel details from VesselFinder..."):
+                        unique_ships = lng_df[ship_col].unique()
+                        vessel_details = []
+                        for ship in unique_ships:
+                            details = get_vessel_info(ship)
+                            vessel_details.append(details)
+                        
+                        details_df = pd.DataFrame(vessel_details)
+                        lng_df = lng_df.merge(details_df, left_on=ship_col, right_on='Ship', how='left')
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("LNG Vessels Expected", len(lng_df))
+                    with col2:
+                        found_count = len(lng_df[lng_df.get('Status', '') == 'Found']) if 'Status' in lng_df.columns else 0
+                        st.metric("Vessel Details Found", found_count)
+                    with col3:
+                        unique_flags = lng_df['Flag'].dropna().nunique() if 'Flag' in lng_df.columns else 0
+                        st.metric("Unique Flags", unique_flags)
+                    
+                    st.markdown("---")
+                    st.markdown("#### LNG Vessel Arrivals")
+                    render_lng_vessel_table(lng_df)
+                else:
+                    st.markdown('''
+                    <div class="no-data">
+                        <h3>No LNG Vessels Found</h3>
+                        <p>No LNG tankers are currently scheduled.</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            else:
+                st.markdown('''
+                <div class="no-data">
+                    <h3>No LNG Vessels Found</h3>
+                    <p>Could not identify ship type column.</p>
+                </div>
+                ''', unsafe_allow_html=True)
         else:
             st.markdown('''
             <div class="no-data">
