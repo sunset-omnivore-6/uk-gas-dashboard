@@ -689,6 +689,279 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
 
 
 # ============================================================================
+# WIND GENERATION FUNCTIONS (ELEXON API)
+# ============================================================================
+
+@st.cache_data(ttl=300)
+def fetch_actual_wind_generation(from_date, to_date):
+    """
+    Fetch actual wind generation from Elexon API.
+    Uses the per-type wind-and-solar endpoint.
+    
+    Args:
+        from_date: Start date
+        to_date: End date
+        
+    Returns:
+        DataFrame with timestamp and wind_actual_mw columns
+    """
+    # Helper to get current settlement period
+    def get_period(t):
+        mins = t.hour * 60 + t.minute
+        return (mins // 30) + 1
+    
+    settlement_from = 1
+    settlement_to = get_period(datetime.utcnow())
+    
+    url = (
+        f"https://data.elexon.co.uk/bmrs/api/v1/generation/actual/per-type/wind-and-solar"
+        f"?from={from_date.strftime('%Y-%m-%d')}"
+        f"&to={to_date.strftime('%Y-%m-%d')}"
+        f"&settlementPeriodFrom={settlement_from}"
+        f"&settlementPeriodTo={settlement_to}"
+    )
+    
+    try:
+        response = requests.get(url, headers={'Accept': 'text/plain'}, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'data' in data:
+            df = pd.DataFrame(data['data'])
+        else:
+            df = pd.DataFrame(data)
+        
+        if len(df) == 0:
+            return pd.DataFrame()
+        
+        # Parse timestamps
+        df['startTime'] = pd.to_datetime(df['startTime'], utc=True)
+        df['settlementDate'] = pd.to_datetime(df['settlementDate']).dt.date
+        df['settlementPeriod'] = df['settlementPeriod'].astype(int)
+        
+        # Filter for wind generation only and sum (combines onshore + offshore)
+        wind_df = df[df['businessType'] == 'Wind generation'].copy()
+        
+        if len(wind_df) == 0:
+            return pd.DataFrame()
+        
+        # Group by settlement period and sum
+        actual_summary = wind_df.groupby(['settlementDate', 'settlementPeriod']).agg(
+            wind_actual_mw=('quantity', 'sum')
+        ).reset_index()
+        
+        # Create datetime from settlement period
+        # Settlement period 1 starts at 00:00, so SP n starts at (n-1)*30 minutes
+        actual_summary['timestamp'] = actual_summary.apply(
+            lambda row: pd.Timestamp(row['settlementDate']) + pd.Timedelta(minutes=(row['settlementPeriod'] - 1) * 30),
+            axis=1
+        )
+        
+        result = actual_summary[['timestamp', 'wind_actual_mw']].sort_values('timestamp').reset_index(drop=True)
+        
+        return result
+        
+    except Exception as e:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def fetch_wind_forecast():
+    """
+    Fetch wind generation forecast from Elexon API.
+    
+    Returns:
+        DataFrame with timestamp and wind_forecast_mw columns
+    """
+    url = "https://data.elexon.co.uk/bmrs/api/v1/forecast/generation/wind"
+    
+    try:
+        response = requests.get(url, headers={'Accept': 'text/plain'}, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'data' in data:
+            df = pd.DataFrame(data['data'])
+        else:
+            df = pd.DataFrame(data)
+        
+        if len(df) == 0:
+            return pd.DataFrame()
+        
+        # Parse timestamps
+        df['startTime'] = pd.to_datetime(df['startTime'], utc=True)
+        df['settlementDate'] = pd.to_datetime(df['settlementDate']).dt.date
+        df['settlementPeriod'] = df['settlementPeriod'].astype(int)
+        
+        # Group by settlement period and sum (onshore + offshore)
+        forecast_summary = df.groupby(['settlementDate', 'settlementPeriod']).agg(
+            wind_forecast_mw=('generation', 'sum')
+        ).reset_index()
+        
+        # Create datetime from settlement period
+        forecast_summary['timestamp'] = forecast_summary.apply(
+            lambda row: pd.Timestamp(row['settlementDate']) + pd.Timedelta(minutes=(row['settlementPeriod'] - 1) * 30),
+            axis=1
+        )
+        
+        result = forecast_summary[['timestamp', 'wind_forecast_mw']].sort_values('timestamp').reset_index(drop=True)
+        
+        return result
+        
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_end):
+    """
+    Create the wind generation forecast vs actual plot.
+    
+    Args:
+        actual_df: DataFrame with actual wind generation
+        forecast_df: DataFrame with forecast wind generation
+        gas_day_start: Start of gas day (05:00)
+        gas_day_end: End of gas day (05:00 next day)
+        
+    Returns:
+        Plotly figure object
+    """
+    fig = go.Figure()
+    
+    # Filter data to gas day
+    if len(forecast_df) > 0:
+        forecast_plot = forecast_df[
+            (forecast_df['timestamp'] >= gas_day_start) & 
+            (forecast_df['timestamp'] <= gas_day_end)
+        ].copy()
+    else:
+        forecast_plot = pd.DataFrame()
+    
+    if len(actual_df) > 0:
+        actual_plot = actual_df[
+            (actual_df['timestamp'] >= gas_day_start)
+        ].copy()
+    else:
+        actual_plot = pd.DataFrame()
+    
+    # Calculate averages for reference lines
+    avg_actual = actual_plot['wind_actual_mw'].mean() if len(actual_plot) > 0 else 0
+    avg_annual = 9500  # Approximate annual average UK wind generation (MW)
+    
+    # Layer 1: Forecast (full day - grey dashed, plotted first as background)
+    if len(forecast_plot) > 0:
+        fig.add_trace(go.Scatter(
+            x=forecast_plot['timestamp'],
+            y=forecast_plot['wind_forecast_mw'],
+            mode='lines',
+            line=dict(color='#94a3b8', width=2, dash='dash'),
+            name='Forecast',
+            hovertemplate='<b>Forecast:</b> %{y:,.0f} MW<extra></extra>'
+        ))
+    
+    # Layer 2: Actual wind generation (solid blue line)
+    if len(actual_plot) > 0:
+        fig.add_trace(go.Scatter(
+            x=actual_plot['timestamp'],
+            y=actual_plot['wind_actual_mw'],
+            mode='lines',
+            line=dict(color='#2E86AB', width=3),
+            name='Actual',
+            hovertemplate='<b>Actual:</b> %{y:,.0f} MW<extra></extra>'
+        ))
+    
+    # Layer 3: Average today line
+    if avg_actual > 0:
+        fig.add_hline(
+            y=avg_actual,
+            line_dash='dash',
+            line_color='#2E86AB',
+            line_width=1.5,
+            annotation_text=f"Avg today: {avg_actual/1000:.1f} GW",
+            annotation_position='right',
+            annotation=dict(font=dict(size=11, color='#2E86AB'))
+        )
+    
+    # Layer 4: Annual average reference line
+    fig.add_hline(
+        y=avg_annual,
+        line_dash='dot',
+        line_color='#94a3b8',
+        line_width=1.5,
+        annotation_text=f"Annual avg: {avg_annual/1000:.1f} GW",
+        annotation_position='right',
+        annotation=dict(font=dict(size=11, color='#94a3b8'))
+    )
+    
+    # Current time marker
+    now = datetime.utcnow()
+    fig.add_vline(
+        x=now.timestamp() * 1000,
+        line_dash='dot',
+        line_color='#1e293b',
+        line_width=2,
+        annotation_text='Now',
+        annotation_position='top',
+        annotation=dict(
+            font=dict(size=11, color='#1e293b', family='Arial Black'),
+            bgcolor='white',
+            bordercolor='#1e293b',
+            borderwidth=2,
+            borderpad=4
+        )
+    )
+    
+    # Layout
+    today_str = datetime.now().strftime('%d %b %Y')
+    
+    fig.update_layout(
+        title=dict(
+            text=f'<b>UK Wind Generation: Actual vs Forecast</b><br><sub>Blue = Actual | Grey dashed = Day-ahead Forecast | {today_str} gas day</sub>',
+            font=dict(size=16, color='#1e293b')
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(color='#1e293b', size=11),
+        hovermode='x unified',
+        height=500,
+        margin=dict(l=60, r=60, t=100, b=60),
+        template='plotly_white',
+        xaxis=dict(
+            gridcolor='#e2e8f0',
+            linecolor='#1e293b',
+            linewidth=2,
+            tickfont=dict(color='#1e293b', size=11),
+            title_font=dict(color='#1e293b'),
+            showline=True,
+            tickformat='%H:%M',
+            range=[gas_day_start, gas_day_end]
+        ),
+        yaxis=dict(
+            title='Wind Generation (MW)',
+            gridcolor='#e2e8f0',
+            linecolor='#1e293b',
+            linewidth=2,
+            tickfont=dict(color='#1e293b', size=11),
+            title_font=dict(color='#1e293b'),
+            showline=True,
+            rangemode='tozero'
+        ),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='left',
+            x=0,
+            bgcolor='rgba(255, 255, 255, 0.95)',
+            bordercolor='#1e293b',
+            borderwidth=1,
+            font=dict(size=12, color='#1e293b')
+        )
+    )
+    
+    return fig
+
+
+# ============================================================================
 # LNG VESSEL TRACKING FUNCTIONS
 # ============================================================================
 
@@ -1208,6 +1481,35 @@ def preload_lng_data():
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def preload_wind_data():
+    """Preload wind generation data (actual and forecast)."""
+    today = datetime.utcnow().date()
+    
+    # Fetch actual wind generation
+    actual_wind = fetch_actual_wind_generation(today, today + timedelta(days=1))
+    
+    # Fetch wind forecast
+    forecast_wind = fetch_wind_forecast()
+    
+    # Filter forecast to today and tomorrow
+    if len(forecast_wind) > 0:
+        forecast_wind = forecast_wind[
+            forecast_wind['timestamp'].dt.date.isin([today, today + timedelta(days=1)])
+        ].copy()
+    
+    # Gas day boundaries
+    gas_day_start = datetime.combine(today, datetime.min.time().replace(hour=5))
+    gas_day_end = datetime.combine(today + timedelta(days=1), datetime.min.time().replace(hour=5))
+    
+    return {
+        'actual_wind': actual_wind,
+        'forecast_wind': forecast_wind,
+        'gas_day_start': gas_day_start,
+        'gas_day_end': gas_day_end
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def preload_elexon_data():
     """Preload Elexon electricity demand data."""
     today = datetime.utcnow().date()
@@ -1270,7 +1572,8 @@ def preload_all_data():
             'national_gas': preload_national_gas_data(),
             'gassco': preload_gassco_data(),
             'lng': preload_lng_data(),
-            'elexon': preload_elexon_data()
+            'elexon': preload_elexon_data(),
+            'wind': preload_wind_data()
         }
     
     # Show loading UI
@@ -1301,7 +1604,12 @@ def preload_all_data():
         # Load LNG vessel data
         status_text.text("🚢 Loading Milford Haven vessels...")
         lng_data = preload_lng_data()
-        progress_bar.progress(65)
+        progress_bar.progress(55)
+        
+        # Load Wind generation data
+        status_text.text("💨 Loading wind generation data...")
+        wind_data = preload_wind_data()
+        progress_bar.progress(70)
         
         # Load Elexon data (this is the slowest due to historical fetch)
         status_text.text("⚡ Loading Elexon electricity data (historical baseline)...")
@@ -1321,7 +1629,8 @@ def preload_all_data():
         'national_gas': national_gas_data,
         'gassco': gassco_data,
         'lng': lng_data,
-        'elexon': elexon_data
+        'elexon': elexon_data,
+        'wind': wind_data
     }
 
 
@@ -1366,7 +1675,7 @@ def main():
         
         elif data_source == "Elexon":
             st.markdown("### Views")
-            elexon_view = st.radio("View", ["Electricity Demand"], label_visibility="collapsed", key="ev")
+            elexon_view = st.radio("View", ["Electricity Demand", "Wind Profile"], label_visibility="collapsed", key="ev")
         
         st.markdown("---")
         if st.button("Refresh Data", use_container_width=True):
@@ -1382,90 +1691,145 @@ def main():
     # ELEXON / ELECTRICITY DEMAND VIEW
     # ========================================================================
     if data_source == "Elexon":
-        st.markdown('<div class="section-header">UK Electricity Demand: 48-Hour Outlook</div>', unsafe_allow_html=True)
         
-        st.markdown('''
-        <div class="info-box">
-            <strong>Electricity Demand Forecast</strong> — Shows actual demand from yesterday and today, 
-            48-hour day-ahead forecast, and seasonal baseline ranges based on historical patterns for the current month.
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        # Use preloaded data
-        elexon_data = preloaded_data['elexon']
-        
-        actual_demand = elexon_data['actual_demand']
-        forecast_demand = elexon_data['forecast_demand']
-        baseline_expanded = elexon_data['baseline_expanded']
-        plot_start = elexon_data['plot_start']
-        plot_end = elexon_data['plot_end']
-        today_gas_day_start = elexon_data['today_gas_day_start']
-        
-        # Split actual into yesterday and today
-        if len(actual_demand) > 0:
-            actual_demand_copy = actual_demand.copy()
-            actual_demand_copy['timestamp'] = pd.to_datetime(actual_demand_copy['timestamp'], utc=True).dt.tz_localize(None)
+        if elexon_view == "Electricity Demand":
+            st.markdown('<div class="section-header">UK Electricity Demand: 48-Hour Outlook</div>', unsafe_allow_html=True)
             
-            # Filter to only show data from plot_start (5am yesterday) onwards
-            actual_demand_copy = actual_demand_copy[actual_demand_copy['timestamp'] >= plot_start].copy()
+            st.markdown('''
+            <div class="info-box">
+                <strong>Electricity Demand Forecast</strong> — Shows actual demand from yesterday and today, 
+                48-hour day-ahead forecast, and seasonal baseline ranges based on historical patterns for the current month.
+            </div>
+            ''', unsafe_allow_html=True)
             
-            yesterday_actual = actual_demand_copy[
-                actual_demand_copy['timestamp'] < today_gas_day_start
-            ].copy()
+            # Use preloaded data
+            elexon_data = preloaded_data['elexon']
             
-            today_actual = actual_demand_copy[
-                actual_demand_copy['timestamp'] >= today_gas_day_start
-            ].copy()
+            actual_demand = elexon_data['actual_demand']
+            forecast_demand = elexon_data['forecast_demand']
+            baseline_expanded = elexon_data['baseline_expanded']
+            plot_start = elexon_data['plot_start']
+            plot_end = elexon_data['plot_end']
+            today_gas_day_start = elexon_data['today_gas_day_start']
             
-            # Get latest actual time to filter forecast
-            if len(today_actual) > 0:
-                latest_actual_time = today_actual['timestamp'].max()
+            # Split actual into yesterday and today
+            if len(actual_demand) > 0:
+                actual_demand_copy = actual_demand.copy()
+                actual_demand_copy['timestamp'] = pd.to_datetime(actual_demand_copy['timestamp'], utc=True).dt.tz_localize(None)
+                
+                # Filter to only show data from plot_start (5am yesterday) onwards
+                actual_demand_copy = actual_demand_copy[actual_demand_copy['timestamp'] >= plot_start].copy()
+                
+                yesterday_actual = actual_demand_copy[
+                    actual_demand_copy['timestamp'] < today_gas_day_start
+                ].copy()
+                
+                today_actual = actual_demand_copy[
+                    actual_demand_copy['timestamp'] >= today_gas_day_start
+                ].copy()
+                
+                # Get latest actual time to filter forecast
+                if len(today_actual) > 0:
+                    latest_actual_time = today_actual['timestamp'].max()
+                else:
+                    latest_actual_time = today_gas_day_start
             else:
+                yesterday_actual = pd.DataFrame()
+                today_actual = pd.DataFrame()
                 latest_actual_time = today_gas_day_start
-        else:
-            yesterday_actual = pd.DataFrame()
-            today_actual = pd.DataFrame()
-            latest_actual_time = today_gas_day_start
-        
-        # Filter forecast to only show after latest actual
-        if len(forecast_demand) > 0:
-            forecast_copy = forecast_demand.copy()
-            forecast_copy['timestamp'] = pd.to_datetime(forecast_copy['timestamp'], utc=True).dt.tz_localize(None)
-            forecast_plot = forecast_copy[
-                (forecast_copy['timestamp'] > latest_actual_time) & 
-                (forecast_copy['timestamp'] <= plot_end)
-            ].copy()
-        else:
-            forecast_plot = pd.DataFrame()
-        
-        # Create the plot
-        fig = create_electricity_demand_plot(yesterday_actual, today_actual, forecast_plot, baseline_expanded)
-        
-        # Display metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if len(today_actual) > 0:
-                current_demand = today_actual['demand_mw'].iloc[-1]
-                st.metric("Current Demand", f"{current_demand:,.0f} MW")
+            
+            # Filter forecast to only show after latest actual
+            if len(forecast_demand) > 0:
+                forecast_copy = forecast_demand.copy()
+                forecast_copy['timestamp'] = pd.to_datetime(forecast_copy['timestamp'], utc=True).dt.tz_localize(None)
+                forecast_plot = forecast_copy[
+                    (forecast_copy['timestamp'] > latest_actual_time) & 
+                    (forecast_copy['timestamp'] <= plot_end)
+                ].copy()
             else:
-                st.metric("Current Demand", "N/A")
+                forecast_plot = pd.DataFrame()
+            
+            # Create the plot
+            fig = create_electricity_demand_plot(yesterday_actual, today_actual, forecast_plot, baseline_expanded)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if len(today_actual) > 0:
+                    current_demand = today_actual['demand_mw'].iloc[-1]
+                    st.metric("Current Demand", f"{current_demand:,.0f} MW")
+                else:
+                    st.metric("Current Demand", "N/A")
+            
+            with col2:
+                if len(today_actual) > 0:
+                    avg_today = today_actual['demand_mw'].mean()
+                    st.metric("Average Today", f"{avg_today:,.0f} MW")
+                else:
+                    st.metric("Average Today", "N/A")
+            
+            with col3:
+                if len(forecast_plot) > 0:
+                    peak_forecast = forecast_plot['demand_mw'].max()
+                    st.metric("Peak Forecast", f"{peak_forecast:,.0f} MW")
+                else:
+                    st.metric("Peak Forecast", "N/A")
+            
+            # Display the plot
+            st.plotly_chart(fig, use_container_width=True, theme=None)
         
-        with col2:
-            if len(today_actual) > 0:
-                avg_today = today_actual['demand_mw'].mean()
-                st.metric("Average Today", f"{avg_today:,.0f} MW")
-            else:
-                st.metric("Average Today", "N/A")
-        
-        with col3:
-            if len(forecast_plot) > 0:
-                peak_forecast = forecast_plot['demand_mw'].max()
-                st.metric("Peak Forecast", f"{peak_forecast:,.0f} MW")
-            else:
-                st.metric("Peak Forecast", "N/A")
-        
-        # Display the plot
-        st.plotly_chart(fig, use_container_width=True, theme=None)
+        elif elexon_view == "Wind Profile":
+            st.markdown('<div class="section-header">UK Wind Generation: Actual vs Forecast</div>', unsafe_allow_html=True)
+            
+            st.markdown('''
+            <div class="info-box">
+                <strong>Wind Generation Profile</strong> — Shows actual wind generation (blue) against the 
+                day-ahead forecast (grey dashed). Compare how wind is performing relative to expectations.
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            # Use preloaded wind data
+            wind_data = preloaded_data['wind']
+            
+            actual_wind = wind_data['actual_wind']
+            forecast_wind = wind_data['forecast_wind']
+            gas_day_start = wind_data['gas_day_start']
+            gas_day_end = wind_data['gas_day_end']
+            
+            # Display metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if len(actual_wind) > 0:
+                    latest_wind = actual_wind['wind_actual_mw'].iloc[-1]
+                    st.metric("Current Wind", f"{latest_wind:,.0f} MW")
+                else:
+                    st.metric("Current Wind", "N/A")
+            
+            with col2:
+                if len(actual_wind) > 0:
+                    avg_wind = actual_wind['wind_actual_mw'].mean()
+                    st.metric("Avg Today", f"{avg_wind:,.0f} MW")
+                else:
+                    st.metric("Avg Today", "N/A")
+            
+            with col3:
+                if len(actual_wind) > 0:
+                    max_wind = actual_wind['wind_actual_mw'].max()
+                    st.metric("Peak Today", f"{max_wind:,.0f} MW")
+                else:
+                    st.metric("Peak Today", "N/A")
+            
+            with col4:
+                if len(forecast_wind) > 0:
+                    avg_forecast = forecast_wind['wind_forecast_mw'].mean()
+                    st.metric("Avg Forecast", f"{avg_forecast:,.0f} MW")
+                else:
+                    st.metric("Avg Forecast", "N/A")
+            
+            # Create and display the plot
+            fig = create_wind_generation_plot(actual_wind, forecast_wind, gas_day_start, gas_day_end)
+            st.plotly_chart(fig, use_container_width=True, theme=None)
     
     # ========================================================================
     # NATIONAL GAS VIEW
