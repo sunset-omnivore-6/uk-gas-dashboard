@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from urllib.parse import quote
 import time
+import html
 
 # Page configuration
 st.set_page_config(
@@ -523,6 +524,10 @@ def render_lng_vessel_table(df: pd.DataFrame):
             break
     if not ship_col:
         ship_col = df.columns[0]
+
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
     
     # Identify "To" / destination column explicitly
     to_col = None
