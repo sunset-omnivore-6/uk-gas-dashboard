@@ -1071,6 +1071,7 @@ def render_gassco_table(df):
 # ============================================================================
 
 def main():
+    st.error("🔴 NEW VERSION RUNNING - DELETE THIS LINE AFTER CONFIRMING")
     # Header bar
     st.markdown(f'''
     <div class="header-bar">
