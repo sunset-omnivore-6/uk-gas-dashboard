@@ -1959,7 +1959,7 @@ def main():
                     x=ic_supply_df['Timestamp'], y=net_series,
                     mode='lines', line=dict(width=2, color=sub["color"]),
                     name='Net Flow',
-                    fill='tozeroy', fillcolor=sub["color"] + "33",
+                    fill='tozeroy', fillcolor=f'rgba({int(sub["color"][1:3],16)},{int(sub["color"][3:5],16)},{int(sub["color"][5:7],16)},0.2)',
                     hovertemplate='<b>Net</b>: %{y:.1f} mcm<extra></extra>'
                 ))
 
