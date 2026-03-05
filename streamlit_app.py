@@ -625,13 +625,14 @@ def render_linepack_section():
         return
 
     now = uk_now()
+    now_naive = now.replace(tzinfo=None)
     latest_val = lp_df['Latest linepack'].iloc[-1]
     opening_val = lp_df['Latest linepack'].iloc[0]
     change = latest_val - opening_val
 
     # Track whether this hour's data has arrived
     latest_ts = lp_df['Timestamp'].iloc[-1]
-    if latest_ts.hour == now.hour or (now - latest_ts.to_pydatetime()).total_seconds() < 300:
+    if latest_ts.hour == now.hour or (now_naive - latest_ts.to_pydatetime()).total_seconds() < 300:
         st.session_state["last_linepack_hour"] = now.hour
 
     change_color = "#34D399" if change >= 0 else "#EF4444"
