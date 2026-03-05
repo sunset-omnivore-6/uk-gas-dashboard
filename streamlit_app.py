@@ -1189,23 +1189,20 @@ def main():
             dash_demand_df, dash_supply_df = prepare_gas_dataframes(dash_demand_df.copy(), dash_supply_df.copy())
 
             # ── Key Metrics Strip ──
-            total_supply = dash_supply_df.iloc[-1][["Beach (UKCS/Norway)", "LNG", "Storage Withdrawal", "Bacton BBL Import", "Bacton INT Import"]].fillna(0).sum() if len(dash_supply_df) > 0 else 0
-            total_demand = dash_demand_df.iloc[-1][["LDZ Offtake", "Power Station", "Industrial", "Storage Injection", "Bacton BBL Export", "Bacton INT Export", "Moffat Export"]].fillna(0).sum() if len(dash_demand_df) > 0 else 0
-            net_balance = total_supply - total_demand
-            bal_color = "#34D399" if net_balance >= 0 else "#EF4444"
-            bal_sign = "+" if net_balance >= 0 else ""
             # Fetch current wind (reuses Elexon cache)
             today = uk_now().date()
             wind_df = fetch_actual_wind_generation(today, today + timedelta(days=1))
             wind_gw = (wind_df['wind_actual_mw'].iloc[-1] / 1000) if wind_df is not None and len(wind_df) > 0 else None
             wind_str = f'{wind_gw:.1f} GW' if wind_gw is not None else 'N/A'
-            # Interconnector direction
+            # Interconnector direction (BBL, IUK, Moffat)
             bbl_imp = dash_supply_df['Bacton BBL Import'].iloc[-1] if 'Bacton BBL Import' in dash_supply_df.columns else 0
             bbl_exp = dash_demand_df['Bacton BBL Export'].iloc[-1] if 'Bacton BBL Export' in dash_demand_df.columns else 0
             int_imp = dash_supply_df['Bacton INT Import'].iloc[-1] if 'Bacton INT Import' in dash_supply_df.columns else 0
             int_exp = dash_demand_df['Bacton INT Export'].iloc[-1] if 'Bacton INT Export' in dash_demand_df.columns else 0
+            moffat_exp = dash_demand_df['Moffat Export'].iloc[-1] if 'Moffat Export' in dash_demand_df.columns else 0
             bbl_net = bbl_imp - bbl_exp
             int_net = int_imp - int_exp
+            moffat_net = -moffat_exp  # Moffat is export-only, so net is always negative/zero
             def ic_label(net, name):
                 if abs(net) < 0.1:
                     return f'<span style="color:#7A8599;">{name}: idle</span>'
@@ -1216,20 +1213,11 @@ def main():
             st.markdown(
                 f'<div style="display:flex;gap:12px;margin-bottom:8px;">'
                 f'<div style="flex:1;background:#131825;border:1px solid #252D44;border-radius:6px;padding:8px 12px;text-align:center;">'
-                f'<div style="color:#7A8599;font-size:0.65rem;text-transform:uppercase;">Total Supply</div>'
-                f'<div style="color:#60A5FA;font-size:1.2rem;font-weight:700;">{total_supply:.1f}</div></div>'
-                f'<div style="flex:1;background:#131825;border:1px solid #252D44;border-radius:6px;padding:8px 12px;text-align:center;">'
-                f'<div style="color:#7A8599;font-size:0.65rem;text-transform:uppercase;">Total Demand</div>'
-                f'<div style="color:#F59E0B;font-size:1.2rem;font-weight:700;">{total_demand:.1f}</div></div>'
-                f'<div style="flex:1;background:#131825;border:1px solid #252D44;border-radius:6px;padding:8px 12px;text-align:center;">'
-                f'<div style="color:#7A8599;font-size:0.65rem;text-transform:uppercase;">Net Balance</div>'
-                f'<div style="color:{bal_color};font-size:1.2rem;font-weight:700;">{bal_sign}{net_balance:.1f}</div></div>'
-                f'<div style="flex:1;background:#131825;border:1px solid #252D44;border-radius:6px;padding:8px 12px;text-align:center;">'
                 f'<div style="color:#7A8599;font-size:0.65rem;text-transform:uppercase;">Wind Gen</div>'
                 f'<div style="color:#34D399;font-size:1.2rem;font-weight:700;">{wind_str}</div></div>'
-                f'<div style="flex:1.5;background:#131825;border:1px solid #252D44;border-radius:6px;padding:8px 12px;text-align:center;">'
+                f'<div style="flex:2;background:#131825;border:1px solid #252D44;border-radius:6px;padding:8px 12px;text-align:center;">'
                 f'<div style="color:#7A8599;font-size:0.65rem;text-transform:uppercase;">Interconnectors</div>'
-                f'<div style="font-size:0.85rem;font-weight:600;margin-top:2px;">{ic_label(bbl_net, "BBL")} &middot; {ic_label(int_net, "IUK")}</div></div>'
+                f'<div style="font-size:0.85rem;font-weight:600;margin-top:2px;">{ic_label(bbl_net, "BBL")} &middot; {ic_label(int_net, "IUK")} &middot; {ic_label(moffat_net, "Moffat")}</div></div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
