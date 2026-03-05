@@ -842,10 +842,18 @@ def create_stacked_flow_chart(df, categories, chart_title, height=250, chart_key
         annotation=dict(font=dict(size=10, color='#E2E8F0'), bgcolor="#131825",
                         bordercolor="#252D44", borderwidth=1)
     )
+    # Y-axis: 0 to daily max + 10%
+    y_max = 0
+    for cat in categories:
+        cols = [c for c in cat["columns"] if c in df.columns]
+        if cols:
+            y_max = max(y_max, (df[cols].fillna(0).sum(axis=1)).max())
+    y_top = y_max * 1.10 if y_max > 0 else 1
     layout = get_chart_layout(f"<b>{chart_title}</b>", height)
     layout['xaxis']['range'] = [start, end]
     layout['xaxis']['tickformat'] = '%H:%M'
     layout['yaxis']['title'] = dict(text='Flow Rate (mcm)', font=dict(color='#7A8599'))
+    layout['yaxis']['range'] = [0, y_top]
     layout['showlegend'] = True
     layout['legend'] = dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5,
                             font=dict(size=10, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
