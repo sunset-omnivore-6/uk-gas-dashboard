@@ -1315,51 +1315,84 @@ def main():
                 prevailing_noms = get_prevailing_nominations()
                 historic_noms = get_historic_nominations()
 
-                # Build sub-terminal line chart with nomination overlays
                 start = gd_start
                 end = start + timedelta(days=1)
                 now_naive = uk_now().replace(tzinfo=None)
-                fig = go.Figure()
-                for sub in subs:
-                    if sub["flow_col"] and sub["flow_col"] in term_entry_df.columns:
-                        fig.add_trace(go.Scatter(
-                            x=term_entry_df['Timestamp'], y=term_entry_df[sub["flow_col"]].fillna(0),
-                            mode='lines', line=dict(width=2, color=sub["color"]),
-                            name=sub["name"],
-                            hovertemplate=f'<b>{sub["name"]}</b>: %{{y:.1f}} mcm<extra></extra>'
-                        ))
-                    # Nomination dashed line
-                    nom_val = prevailing_noms.get(sub["nom_name"])
-                    if nom_val is not None and nom_val > 0.01:
-                        fig.add_hline(
-                            y=nom_val, line_dash="dash", line_color=sub["color"], line_width=1.5,
-                            annotation_text=f'{sub["name"]} nom: {nom_val:.1f}',
-                            annotation_position="right",
-                            annotation=dict(font=dict(size=9, color=sub["color"]), bgcolor="#131825")
-                        )
-                fig.add_vline(
-                    x=int(now_naive.timestamp() * 1000), line_color="#E2E8F0", line_width=1.5,
-                    annotation_text="<b>Now</b>", annotation_position="top",
-                    annotation=dict(font=dict(size=10, color='#E2E8F0'), bgcolor="#131825",
-                                    bordercolor="#252D44", borderwidth=1)
-                )
-                layout = get_chart_layout(f"<b>{selected_terminal} — Sub-Terminal Flows vs Nominations</b>", 350)
-                layout['xaxis']['range'] = [start, end]
-                layout['xaxis']['tickformat'] = '%H:%M'
-                layout['yaxis']['title'] = dict(text='Flow Rate (mcm)', font=dict(color='#7A8599'))
-                layout['showlegend'] = True
-                layout['legend'] = dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5,
-                                        font=dict(size=10, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
-                layout['margin'] = dict(l=50, r=120, t=35, b=55)
-                fig.update_layout(**layout)
-                st.plotly_chart(fig, use_container_width=True, theme=None, key="term_subterminal")
+                elapsed_secs = max(0, (now_naive - start).total_seconds())
+                remaining_secs = max(0, 86400 - elapsed_secs)
 
-                # Nomination summary cards
-                cols = st.columns(len(subs))
-                for col, sub in zip(cols, subs):
-                    with col:
-                        flow_val = term_entry_df[sub["flow_col"]].iloc[-1] if sub["flow_col"] and sub["flow_col"] in term_entry_df.columns else 0
-                        nom_val = prevailing_noms.get(sub["nom_name"], 0)
+                # Individual chart + card per sub-terminal
+                for sub_idx, sub in enumerate(subs):
+                    flow_col = sub["flow_col"]
+                    has_flow = flow_col and flow_col in term_entry_df.columns
+                    flow_val = term_entry_df[flow_col].iloc[-1] if has_flow else 0
+                    nom_val = prevailing_noms.get(sub["nom_name"], 0)
+
+                    # EoD at current rate: avg so far × elapsed% + current rate × remaining%
+                    if has_flow and elapsed_secs > 0:
+                        avg_so_far = term_entry_df[flow_col].fillna(0).mean()
+                        eod_current_rate = avg_so_far * (elapsed_secs / 86400) + flow_val * (remaining_secs / 86400)
+                    else:
+                        eod_current_rate = 0
+
+                    # Build individual chart
+                    fig = go.Figure()
+                    if has_flow:
+                        fig.add_trace(go.Scatter(
+                            x=term_entry_df['Timestamp'], y=term_entry_df[flow_col].fillna(0),
+                            mode='lines', line=dict(width=2, color=sub["color"]),
+                            name='Flow',
+                            hovertemplate='<b>Flow</b>: %{y:.1f} mcm<extra></extra>'
+                        ))
+
+                    # Stepped nomination line from historic data
+                    hist = historic_noms.get(sub["nom_name"], [])
+                    if hist:
+                        # Build stepped series: each hourly nom holds until the next
+                        nom_times = []
+                        nom_vals = []
+                        for i, (ts, val) in enumerate(hist):
+                            nom_times.append(ts)
+                            nom_vals.append(val)
+                            if i < len(hist) - 1:
+                                # Step: hold value until just before next timestamp
+                                next_ts = hist[i + 1][0]
+                                nom_times.append(next_ts - timedelta(seconds=1))
+                                nom_vals.append(val)
+                        # Extend last nom to current time
+                        nom_times.append(now_naive)
+                        nom_vals.append(hist[-1][1])
+                        fig.add_trace(go.Scatter(
+                            x=nom_times, y=nom_vals,
+                            mode='lines', line=dict(width=1.5, color='#7A8599', dash='dash'),
+                            name='Nomination',
+                            hovertemplate='<b>Nom</b>: %{y:.1f} mcm<extra></extra>'
+                        ))
+                    elif nom_val > 0.01:
+                        # Fallback: flat line from prevailing nom
+                        fig.add_hline(y=nom_val, line_dash="dash", line_color="#7A8599", line_width=1.5)
+
+                    fig.add_vline(
+                        x=int(now_naive.timestamp() * 1000), line_color="#E2E8F0", line_width=1,
+                        annotation_text="<b>Now</b>", annotation_position="top",
+                        annotation=dict(font=dict(size=9, color='#E2E8F0'), bgcolor="#131825",
+                                        bordercolor="#252D44", borderwidth=1)
+                    )
+                    layout = get_chart_layout(f"<b>{sub['name']}</b>", 200)
+                    layout['xaxis']['range'] = [start, end]
+                    layout['xaxis']['tickformat'] = '%H:%M'
+                    layout['yaxis']['title'] = dict(text='mcm', font=dict(color='#7A8599', size=10))
+                    layout['showlegend'] = True
+                    layout['legend'] = dict(orientation="h", yanchor="top", y=1.15, xanchor="right", x=1,
+                                            font=dict(size=9, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
+                    layout['margin'] = dict(l=50, r=20, t=30, b=25)
+                    fig.update_layout(**layout)
+
+                    # Chart + summary card side by side
+                    col_chart, col_card = st.columns([4, 1])
+                    with col_chart:
+                        st.plotly_chart(fig, use_container_width=True, theme=None, key=f"term_sub_{sub_idx}")
+                    with col_card:
                         # Status
                         if nom_val > 0.1:
                             ratio = flow_val / nom_val
@@ -1373,7 +1406,6 @@ def main():
                             status = '<span style="color:#7A8599;">No nom</span>'
                         # Nom change indicator
                         nom_change_html = ""
-                        hist = historic_noms.get(sub["nom_name"], [])
                         if len(hist) >= 2:
                             first_nom = hist[0][1]
                             last_nom = hist[-1][1]
@@ -1381,7 +1413,6 @@ def main():
                             if abs(delta) > 1.0:
                                 arrow = "\u2191" if delta > 0 else "\u2193"
                                 change_color = "#60A5FA" if delta > 0 else "#F59E0B"
-                                # Find when the big change happened
                                 change_time = ""
                                 for i in range(1, len(hist)):
                                     if abs(hist[i][1] - hist[i-1][1]) > 0.5:
@@ -1391,14 +1422,17 @@ def main():
                                     f'Nom {arrow}{abs(delta):.1f}'
                                     f'{" at " + change_time if change_time else ""}</div>'
                                 )
+                        # EoD color
+                        eod_color = "#34D399" if nom_val < 0.1 or abs(eod_current_rate - nom_val) / max(nom_val, 0.1) < 0.10 else ("#60A5FA" if eod_current_rate > nom_val else "#F59E0B")
 
                         st.markdown(
                             f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid {sub["color"]};'
-                            f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;">'
-                            f'<div style="color:#E2E8F0;font-size:0.85rem;font-weight:600;margin-bottom:4px;">{sub["name"]}</div>'
-                            f'<div style="font-size:0.75rem;color:#7A8599;">Flow: <strong style="color:#E2E8F0;">{flow_val:.1f}</strong> mcm</div>'
-                            f'<div style="font-size:0.75rem;color:#7A8599;">Nom: <strong style="color:#E2E8F0;">{nom_val:.1f}</strong> mcm</div>'
-                            f'<div style="font-size:0.75rem;margin-top:4px;">{status}</div>'
+                            f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;margin-top:10px;">'
+                            f'<div style="color:#E2E8F0;font-size:0.85rem;font-weight:600;margin-bottom:6px;">{sub["name"]}</div>'
+                            f'<div style="font-size:0.7rem;color:#7A8599;">Flow: <strong style="color:#E2E8F0;">{flow_val:.1f}</strong></div>'
+                            f'<div style="font-size:0.7rem;color:#7A8599;">Nom: <strong style="color:#E2E8F0;">{nom_val:.1f}</strong></div>'
+                            f'<div style="font-size:0.7rem;color:#7A8599;">EoD: <strong style="color:{eod_color};">{eod_current_rate:.1f}</strong></div>'
+                            f'<div style="font-size:0.7rem;margin-top:4px;">{status}</div>'
                             f'{nom_change_html}'
                             f'</div>',
                             unsafe_allow_html=True
