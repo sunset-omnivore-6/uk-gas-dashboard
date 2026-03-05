@@ -1026,7 +1026,7 @@ NOM_PUBOBJ_IDS = (
     "PUBOBJ1120,PUBOBJ1122,PUBOBJ1121,PUBOBJ1123,PUBOBJ1124,PUBOBJ1125,"
     "PUBOBJ1112,PUBOBJ1135,PUBOBJ1117,PUBOBJ1118,PUBOBJ1119,PUBOBJ1141,"
     "PUBOBJ1126,PUBOBJ1094,PUBOBJ1106,PUBOBJ1597,PUBOBJ1596,PUBOBJ1093,"
-    "PUBOBJ1153"
+    "PUBOBJ1153,PUBOBJ1156"
 )
 
 LNG_SUBTERMINALS = {
@@ -1198,8 +1198,8 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-    tab_dash, tab_terminals, tab_lng, tab_ic, tab_ccgt, tab_gas, tab_elexon, tab_gassco = st.tabs([
-        "\U0001f4ca Dashboard", "\U0001f3ed Terminals", "\U0001f6a2 LNG", "\U0001f517 Interconnectors", "\U0001f525 CCGT", "\U0001f525 Flows", "\u26a1 Electricity", "\U0001f527 GASSCO"
+    tab_dash, tab_terminals, tab_lng, tab_ic, tab_demand, tab_gas, tab_elexon, tab_gassco = st.tabs([
+        "\U0001f4ca Dashboard", "\U0001f3ed Terminals", "\U0001f6a2 LNG", "\U0001f517 Interconnectors", "\U0001f4c9 Demand", "\U0001f525 Flows", "\u26a1 Electricity", "\U0001f527 GASSCO"
     ])
 
     # ── DASHBOARD TAB ──
@@ -2072,77 +2072,86 @@ def main():
         else:
             st.info("Interconnector flow data unavailable.")
 
-    # ── CCGT TAB ──
-    with tab_ccgt:
-        ccgt_demand_df = get_gas_data("demandCategoryGraph")
-        ccgt_gd_start = gas_day_start()
+    # ── DEMAND TAB (CCGT / LDZ) ──
+    DEMAND_ITEMS = {
+        "CCGT": {"col": "Power Station", "nom_name": "NTS Powerstation Total", "color": "#EF4444", "title": "CCGT / Power Station Gas Demand"},
+        "LDZ": {"col": "LDZ Offtake", "nom_name": "Shrinkage (LDZ ) Total", "color": "#F59E0B", "title": "LDZ Offtake Gas Demand"},
+    }
+    with tab_demand:
+        dem_view = st.radio(
+            "Select Category", list(DEMAND_ITEMS.keys()),
+            horizontal=True, key="demand_view", label_visibility="collapsed"
+        )
+        dem_cfg = DEMAND_ITEMS[dem_view]
+        dem_df = get_gas_data("demandCategoryGraph")
+        dem_gd_start = gas_day_start()
 
-        if ccgt_demand_df is not None:
-            ccgt_demand_df = ccgt_demand_df.copy()
-            ccgt_demand_df['Timestamp'] = pd.to_datetime(ccgt_demand_df['dateTime'], unit='ms')
-            ccgt_demand_df['interval_seconds'] = ccgt_demand_df['Timestamp'].diff().dt.total_seconds().fillna(120)
-            ccgt_col = "Power Station"
+        if dem_df is not None:
+            dem_df = dem_df.copy()
+            dem_df['Timestamp'] = pd.to_datetime(dem_df['dateTime'], unit='ms')
+            dem_df['interval_seconds'] = dem_df['Timestamp'].diff().dt.total_seconds().fillna(120)
+            dem_col = dem_cfg["col"]
 
-            if ccgt_col in ccgt_demand_df.columns:
-                ccgt_now = uk_now().replace(tzinfo=None)
-                ccgt_end = ccgt_gd_start + timedelta(days=1)
-                ccgt_elapsed = max(0, (ccgt_now - ccgt_gd_start).total_seconds())
-                ccgt_remaining = max(0, 86400 - ccgt_elapsed)
+            if dem_col in dem_df.columns:
+                dem_now = uk_now().replace(tzinfo=None)
+                dem_end = dem_gd_start + timedelta(days=1)
+                dem_elapsed = max(0, (dem_now - dem_gd_start).total_seconds())
+                dem_remaining = max(0, 86400 - dem_elapsed)
 
-                ccgt_flow = ccgt_demand_df[ccgt_col].iloc[-1]
-                ccgt_avg = ccgt_demand_df[ccgt_col].fillna(0).mean()
-                ccgt_eod = ccgt_avg * (ccgt_elapsed / 86400) + ccgt_flow * (ccgt_remaining / 86400) if ccgt_elapsed > 0 else 0
+                dem_flow = dem_df[dem_col].iloc[-1]
+                dem_avg = dem_df[dem_col].fillna(0).mean()
+                dem_eod = dem_avg * (dem_elapsed / 86400) + dem_flow * (dem_remaining / 86400) if dem_elapsed > 0 else 0
 
                 # Nominations
-                ccgt_prevailing = get_prevailing_nominations()
-                ccgt_historic = get_historic_nominations()
-                ccgt_nom = ccgt_prevailing.get("NTS Powerstation Total", 0)
-                ccgt_hist = ccgt_historic.get("NTS Powerstation Total", [])
+                dem_prevailing = get_prevailing_nominations()
+                dem_historic = get_historic_nominations()
+                dem_nom = dem_prevailing.get(dem_cfg["nom_name"], 0)
+                dem_hist = dem_historic.get(dem_cfg["nom_name"], [])
 
                 # Build chart
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=ccgt_demand_df['Timestamp'], y=ccgt_demand_df[ccgt_col].fillna(0),
-                    mode='lines', line=dict(width=2, color='#EF4444'),
-                    name='CCGT Flow',
+                    x=dem_df['Timestamp'], y=dem_df[dem_col].fillna(0),
+                    mode='lines', line=dict(width=2, color=dem_cfg["color"]),
+                    name=f'{dem_view} Flow',
                     hovertemplate='<b>Flow</b>: %{y:.1f} mcm<extra></extra>'
                 ))
 
                 # Stepped nomination line
-                if ccgt_hist:
+                if dem_hist:
                     nom_times = []
                     nom_vals = []
-                    for i, (ts, val) in enumerate(ccgt_hist):
+                    for i, (ts, val) in enumerate(dem_hist):
                         nom_times.append(ts)
                         nom_vals.append(val)
-                        if i < len(ccgt_hist) - 1:
-                            nom_times.append(ccgt_hist[i + 1][0] - timedelta(seconds=1))
+                        if i < len(dem_hist) - 1:
+                            nom_times.append(dem_hist[i + 1][0] - timedelta(seconds=1))
                             nom_vals.append(val)
-                    nom_times.append(ccgt_now)
-                    nom_vals.append(ccgt_hist[-1][1])
+                    nom_times.append(dem_now)
+                    nom_vals.append(dem_hist[-1][1])
                     fig.add_trace(go.Scatter(
                         x=nom_times, y=nom_vals,
                         mode='lines', line=dict(width=1.5, color='#7A8599', dash='dash'),
                         name='Nomination',
                         hovertemplate='<b>Nom</b>: %{y:.1f} mcm<extra></extra>'
                     ))
-                elif ccgt_nom > 0.01:
-                    fig.add_hline(y=ccgt_nom, line_dash="dash", line_color="#7A8599", line_width=1.5)
+                elif dem_nom > 0.01:
+                    fig.add_hline(y=dem_nom, line_dash="dash", line_color="#7A8599", line_width=1.5)
 
                 fig.add_vline(
-                    x=int(ccgt_now.timestamp() * 1000), line_color="#E2E8F0", line_width=1,
+                    x=int(dem_now.timestamp() * 1000), line_color="#E2E8F0", line_width=1,
                     annotation_text="<b>Now</b>", annotation_position="top",
                     annotation=dict(font=dict(size=9, color='#E2E8F0'), bgcolor="#131825",
                                     bordercolor="#252D44", borderwidth=1)
                 )
 
                 # Y-axis: 0 to max + 10%
-                y_max_vals = [ccgt_demand_df[ccgt_col].fillna(0).max(), ccgt_nom]
-                if ccgt_hist:
-                    y_max_vals.append(max(v for _, v in ccgt_hist))
+                y_max_vals = [dem_df[dem_col].fillna(0).max(), dem_nom]
+                if dem_hist:
+                    y_max_vals.append(max(v for _, v in dem_hist))
                 y_top = max(y_max_vals) * 1.10 if max(y_max_vals) > 0 else 1
-                layout = get_chart_layout("<b>CCGT / Power Station Gas Demand</b>", 300)
-                layout['xaxis']['range'] = [ccgt_gd_start, ccgt_end]
+                layout = get_chart_layout(f"<b>{dem_cfg['title']}</b>", 300)
+                layout['xaxis']['range'] = [dem_gd_start, dem_end]
                 layout['xaxis']['tickformat'] = '%H:%M'
                 layout['yaxis']['title'] = dict(text='Flow Rate (mcm)', font=dict(color='#7A8599'))
                 layout['yaxis']['range'] = [0, y_top]
@@ -2155,11 +2164,11 @@ def main():
                 # Chart + card side by side
                 col_chart, col_card = st.columns([4, 1])
                 with col_chart:
-                    st.plotly_chart(fig, use_container_width=True, theme=None, key="ccgt_chart")
+                    st.plotly_chart(fig, use_container_width=True, theme=None, key=f"dem_{dem_view}_chart")
                 with col_card:
                     # Status
-                    if ccgt_nom > 0.1:
-                        ratio = ccgt_flow / ccgt_nom
+                    if dem_nom > 0.1:
+                        ratio = dem_flow / dem_nom
                         if ratio > 1.10:
                             status = '<span style="color:#60A5FA;">Above nom</span>'
                         elif ratio < 0.90:
@@ -2170,38 +2179,38 @@ def main():
                         status = '<span style="color:#7A8599;">No nom</span>'
                     # Nom change
                     nom_change_html = ""
-                    if len(ccgt_hist) >= 2:
-                        delta = ccgt_hist[-1][1] - ccgt_hist[0][1]
+                    if len(dem_hist) >= 2:
+                        delta = dem_hist[-1][1] - dem_hist[0][1]
                         if abs(delta) > 1.0:
                             arrow = "\u2191" if delta > 0 else "\u2193"
                             change_color = "#60A5FA" if delta > 0 else "#F59E0B"
                             change_time = ""
-                            for ci in range(1, len(ccgt_hist)):
-                                if abs(ccgt_hist[ci][1] - ccgt_hist[ci-1][1]) > 0.5:
-                                    change_time = ccgt_hist[ci][0].strftime("%H:%M")
+                            for ci in range(1, len(dem_hist)):
+                                if abs(dem_hist[ci][1] - dem_hist[ci-1][1]) > 0.5:
+                                    change_time = dem_hist[ci][0].strftime("%H:%M")
                             nom_change_html = (
                                 f'<div style="color:{change_color};font-size:0.7rem;margin-top:3px;">'
                                 f'Nom {arrow}{abs(delta):.1f}'
                                 f'{" at " + change_time if change_time else ""}</div>'
                             )
-                    eod_color = "#34D399" if ccgt_nom < 0.1 or abs(ccgt_eod - ccgt_nom) / max(ccgt_nom, 0.1) < 0.10 else ("#60A5FA" if ccgt_eod > ccgt_nom else "#F59E0B")
+                    eod_color = "#34D399" if dem_nom < 0.1 or abs(dem_eod - dem_nom) / max(dem_nom, 0.1) < 0.10 else ("#60A5FA" if dem_eod > dem_nom else "#F59E0B")
 
                     st.markdown(
-                        f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #EF4444;'
+                        f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid {dem_cfg["color"]};'
                         f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;margin-top:10px;">'
-                        f'<div style="color:#E2E8F0;font-size:0.85rem;font-weight:600;margin-bottom:6px;">CCGT</div>'
-                        f'<div style="font-size:0.7rem;color:#7A8599;">Flow: <strong style="color:#E2E8F0;">{ccgt_flow:.1f}</strong></div>'
-                        f'<div style="font-size:0.7rem;color:#7A8599;">Nom: <strong style="color:#E2E8F0;">{ccgt_nom:.1f}</strong></div>'
-                        f'<div style="font-size:0.7rem;color:#7A8599;">EoD: <strong style="color:{eod_color};">{ccgt_eod:.1f}</strong></div>'
+                        f'<div style="color:#E2E8F0;font-size:0.85rem;font-weight:600;margin-bottom:6px;">{dem_view}</div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">Flow: <strong style="color:#E2E8F0;">{dem_flow:.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">Nom: <strong style="color:#E2E8F0;">{dem_nom:.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">EoD: <strong style="color:{eod_color};">{dem_eod:.1f}</strong></div>'
                         f'<div style="font-size:0.7rem;margin-top:4px;">{status}</div>'
                         f'{nom_change_html}'
                         f'</div>',
                         unsafe_allow_html=True
                     )
             else:
-                st.info("CCGT flow data not found in demand categories.")
+                st.info(f"{dem_view} flow data not found in demand categories.")
         else:
-            st.info("CCGT demand data unavailable.")
+            st.info("Demand data unavailable.")
 
 
 if __name__ == "__main__":
