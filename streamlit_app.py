@@ -670,13 +670,19 @@ def render_linepack_section():
     change_color = "#34D399" if change >= 0 else "#EF4444"
     change_arrow = "+" if change >= 0 else ""
 
-    # Sparkline with PCLP overlay
+    # Sparkline with PCLP overlay — y-axis tight to data range
     start = gas_day_start()
+    all_vals = list(lp_df['Latest linepack'])
+    if pclp_df is not None and pclp_col in pclp_df.columns:
+        all_vals.extend(list(pclp_df[pclp_col]))
+    y_min_data, y_max_data = min(all_vals), max(all_vals)
+    y_pad = max((y_max_data - y_min_data) * 0.10, 2)  # at least 2 mcm padding
+    y_range = [y_min_data - y_pad, y_max_data + y_pad]
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=lp_df['Timestamp'], y=lp_df['Latest linepack'],
         mode='lines', line=dict(color='#34D399', width=2.5),
-        fill='tozeroy', fillcolor='rgba(52, 211, 153, 0.1)',
         name='Linepack',
         hovertemplate='<b>%{x|%H:%M}</b><br>Linepack: %{y:.1f} mcm<extra></extra>'
     ))
@@ -696,39 +702,66 @@ def render_linepack_section():
                    range=[start, start + timedelta(days=1)], showline=True,
                    tickfont=dict(color='#7A8599', size=10)),
         yaxis=dict(gridcolor='#1E2640', linecolor='#252D44', showline=True,
-                   tickfont=dict(color='#7A8599', size=10)),
+                   tickfont=dict(color='#7A8599', size=10), range=y_range),
         showlegend=True,
         legend=dict(orientation="h", yanchor="top", y=1.15, xanchor="right", x=1,
                     font=dict(size=10, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
     )
 
-    col_val, col_chart = st.columns([1, 3])
-    with col_val:
-        # PCLP card
-        if pclp_val is not None:
+    col_bal, col_vals, col_chart = st.columns([1, 1, 3])
+    with col_bal:
+        # System balance — hero card
+        if pclp_val is not None and balance is not None:
             bal_color = "#34D399" if balance >= 0 else "#EF4444"
             bal_arrow = "+" if balance >= 0 else ""
-            bal_label = "oversupplied" if balance >= 0 else "undersupplied"
+            bal_label = "OVERSUPPLIED" if balance >= 0 else "UNDERSUPPLIED"
+            bal_border = bal_color
             st.markdown(
-                f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #F59E0B;'
-                f'border-radius:0 8px 8px 0;padding:12px 16px;text-align:center;margin-bottom:8px;">'
-                f'<div style="color:#7A8599;font-size:0.75rem;margin-bottom:2px;">Predicted Close</div>'
-                f'<div style="color:#F59E0B;font-size:1.6rem;font-weight:700;">{pclp_val:.1f}</div>'
+                f'<div style="background:linear-gradient(135deg, #131825 0%, #1a2233 100%);'
+                f'border:2px solid {bal_border};border-radius:8px;padding:16px 12px;text-align:center;">'
+                f'<div style="color:#7A8599;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">System Balance</div>'
+                f'<div style="color:{bal_color};font-size:2.2rem;font-weight:800;line-height:1.1;">{bal_arrow}{balance:.1f}</div>'
                 f'<div style="color:#7A8599;font-size:0.7rem;">mcm</div>'
-                f'<div style="color:{bal_color};font-size:0.8rem;margin-top:4px;">'
-                f'{bal_arrow}{balance:.1f} vs open ({bal_label})</div>'
+                f'<div style="color:{bal_color};font-size:0.85rem;font-weight:600;margin-top:6px;'
+                f'background:{"rgba(52,211,153,0.1)" if balance >= 0 else "rgba(239,68,68,0.1)"};'
+                f'padding:3px 8px;border-radius:4px;display:inline-block;">{bal_label}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
-        # Current linepack card
+        else:
+            st.markdown(
+                '<div style="background:#131825;border:1px solid #252D44;border-radius:8px;padding:16px 12px;text-align:center;">'
+                '<div style="color:#7A8599;font-size:0.8rem;">System Balance</div>'
+                '<div style="color:#7A8599;font-size:1.2rem;margin-top:8px;">Awaiting PCLP...</div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+    with col_vals:
+        # Predicted Close (smaller)
+        if pclp_val is not None:
+            st.markdown(
+                f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #F59E0B;'
+                f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;margin-bottom:6px;">'
+                f'<div style="color:#7A8599;font-size:0.7rem;">Predicted Close</div>'
+                f'<div style="color:#F59E0B;font-size:1.3rem;font-weight:700;">{pclp_val:.1f} <span style="font-size:0.7rem;color:#7A8599;">mcm</span></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        # Current Linepack (smaller)
         st.markdown(
             f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #34D399;'
-            f'border-radius:0 8px 8px 0;padding:12px 16px;text-align:center;">'
-            f'<div style="color:#7A8599;font-size:0.75rem;margin-bottom:2px;">Current Linepack</div>'
-            f'<div style="color:#34D399;font-size:1.6rem;font-weight:700;">{latest_val:.1f}</div>'
-            f'<div style="color:#7A8599;font-size:0.7rem;">mcm</div>'
-            f'<div style="color:{change_color};font-size:0.8rem;margin-top:4px;">'
-            f'{change_arrow}{change:.1f} from open ({opening_val:.1f})</div>'
+            f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;margin-bottom:6px;">'
+            f'<div style="color:#7A8599;font-size:0.7rem;">Current Linepack</div>'
+            f'<div style="color:#34D399;font-size:1.3rem;font-weight:700;">{latest_val:.1f} <span style="font-size:0.7rem;color:#7A8599;">mcm</span></div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        # Opening value
+        st.markdown(
+            f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #7A8599;'
+            f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;">'
+            f'<div style="color:#7A8599;font-size:0.7rem;">Opening (Yest Close)</div>'
+            f'<div style="color:#E2E8F0;font-size:1.3rem;font-weight:700;">{opening_val:.1f} <span style="font-size:0.7rem;color:#7A8599;">mcm</span></div>'
             f'</div>',
             unsafe_allow_html=True
         )
