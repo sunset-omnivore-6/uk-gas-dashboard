@@ -983,12 +983,11 @@ TERMINAL_CATEGORIES = [
     {"name": "St Fergus", "columns": ["ST FERGUS SHELL", "ST FERGUS NSMP", "ST FERGUS MOBIL"], "color": "#A78BFA"},
     {"name": "Bacton", "columns": ["BACTON PERENCO", "BACTON SEAL", "BACTON SHELL"], "color": "#F472B6"},
     {"name": "Teesside", "columns": ["TEESSIDE CATS", "TEESSIDE PX"], "color": "#FB923C"},
-    {"name": "Theddlethorpe", "columns": ["THEDDLETHORPE"], "color": "#7A8599"},
 ]
 
 LNG_CATEGORIES = [
     {"name": "South Hook", "columns": ["MILFORD HAVEN - SOUTH HOOK"], "color": "#F59E0B"},
-    {"name": "Dragon", "columns": ["MILFORD HAVEN - DRAGON"], "color": "#FBBF24"},
+    {"name": "Dragon", "columns": ["MILFORD HAVEN - DRAGON"], "color": "#EF4444"},
     {"name": "Grain", "columns": ["GRAIN NTS 1", "GRAIN NTS 2"], "color": "#60A5FA"},
 ]
 
@@ -999,6 +998,109 @@ STORAGE_CATEGORIES = [
     {"name": "Hornsea", "columns": ["HORNSEA"], "color": "#EF4444"},
     {"name": "Hill Top", "columns": ["HILLTOP"], "color": "#34D399"},
 ]
+
+# ── Terminal sub-terminal breakdown for Terminals tab ──
+KWH_MCM = 10_972_000  # kWh to mcm conversion factor
+
+NOM_PUBOBJ_IDS = "PUBOBJ1107,PUBOBJ1108,PUBOBJ1109,PUBOBJ1105,PUBOBJ1110,PUBOBJ1111,PUBOBJ1113,PUBOBJ1114,PUBOBJ1116,PUBOBJ2071,PUBOBJ1676,PUBOBJ1120,PUBOBJ1122,PUBOBJ1121,PUBOBJ1123,PUBOBJ1124,PUBOBJ1125"
+
+TERMINAL_SUBTERMINALS = {
+    "Easington": [
+        {"name": "Langeled", "flow_col": "EASINGTON LANGELED", "nom_name": "Easington-Langeled", "color": "#60A5FA"},
+        {"name": "Dimlington", "flow_col": "EASINGTON DIMLINGTON", "nom_name": "Easington-Dimlington", "color": "#93C5FD"},
+        {"name": "Rough", "flow_col": "EASINGTON ROUGH ST", "nom_name": "Rough-Sub", "color": "#34D399"},
+    ],
+    "Bacton": [
+        {"name": "Perenco", "flow_col": "BACTON PERENCO", "nom_name": "Bacton-Perenco", "color": "#F472B6"},
+        {"name": "Seal", "flow_col": "BACTON SEAL", "nom_name": "Bacton-Seal", "color": "#A78BFA"},
+        {"name": "Shell", "flow_col": "BACTON SHELL", "nom_name": "Bacton-Shell", "color": "#FB923C"},
+    ],
+    "St Fergus": [
+        {"name": "Shell", "flow_col": "ST FERGUS SHELL", "nom_name": "STFergus-Shell", "color": "#A78BFA"},
+        {"name": "NSMP", "flow_col": "ST FERGUS NSMP", "nom_name": "STFergus-NSMP", "color": "#60A5FA"},
+        {"name": "Mobil", "flow_col": "ST FERGUS MOBIL", "nom_name": "STFergus-Mobil", "color": "#34D399"},
+    ],
+    "Teesside": [
+        {"name": "CATS", "flow_col": "TEESSIDE CATS", "nom_name": "Teesside-CATS", "color": "#FB923C"},
+        {"name": "PX", "flow_col": "TEESSIDE PX", "nom_name": "Teesside-PX", "color": "#A78BFA"},
+    ],
+}
+
+# Map nomination name (from CSV "Data Item" field) → flow column
+NOM_TO_FLOW = {}
+for subs in TERMINAL_SUBTERMINALS.values():
+    for s in subs:
+        NOM_TO_FLOW[s["nom_name"]] = s["flow_col"]
+
+
+# ── Nomination fetch functions ──
+
+@st.cache_data(ttl=300)
+def get_prevailing_nominations():
+    """Fetch latest prevailing nominations for all sub-terminals. Returns dict {nom_name: mcm}."""
+    today = uk_now().strftime("%Y-%m-%d")
+    url = "https://data.nationalgas.com/api/find-gas-data-download"
+    params = {
+        "applicableFor": "Y", "dateFrom": today, "dateTo": today,
+        "dateType": "GASDAY", "latestFlag": "Y",
+        "ids": NOM_PUBOBJ_IDS, "type": "CSV"
+    }
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        import io
+        df = pd.read_csv(io.StringIO(response.text))
+        result = {}
+        for _, row in df.iterrows():
+            data_item = str(row.get("Data Item", ""))
+            parts = [p.strip() for p in data_item.split(",")]
+            if len(parts) >= 3:
+                nom_name = parts[2]
+                value_kwh = float(row.get("Value", 0))
+                result[nom_name] = value_kwh / KWH_MCM
+        return result
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.warning("Failed to fetch prevailing nominations: %s", e)
+        return {}
+
+
+@st.cache_data(ttl=300)
+def get_historic_nominations():
+    """Fetch all within-day nominations (hourly). Returns dict {nom_name: [(timestamp, mcm), ...]}."""
+    today = uk_now().strftime("%Y-%m-%d")
+    url = "https://data.nationalgas.com/api/find-gas-data-download"
+    params = {
+        "applicableFor": "Y", "dateFrom": today, "dateTo": today,
+        "dateType": "GASDAY", "latestFlag": "N",
+        "ids": NOM_PUBOBJ_IDS, "type": "CSV"
+    }
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        import io
+        df = pd.read_csv(io.StringIO(response.text))
+        result = {}
+        for _, row in df.iterrows():
+            data_item = str(row.get("Data Item", ""))
+            parts = [p.strip() for p in data_item.split(",")]
+            if len(parts) >= 3:
+                nom_name = parts[2]
+                value_kwh = float(row.get("Value", 0))
+                ts_str = str(row.get("Applicable At", ""))
+                try:
+                    ts = datetime.strptime(ts_str, "%d/%m/%Y %H:%M:%S")
+                except ValueError:
+                    continue
+                if nom_name not in result:
+                    result[nom_name] = []
+                result[nom_name].append((ts, value_kwh / KWH_MCM))
+        # Sort each list by timestamp
+        for k in result:
+            result[k].sort(key=lambda x: x[0])
+        return result
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.warning("Failed to fetch historic nominations: %s", e)
+        return {}
 
 
 # ============================================================================
@@ -1030,8 +1132,8 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-    tab_dash, tab_gas, tab_elexon, tab_gassco, tab_lng = st.tabs([
-        "\U0001f4ca Dashboard", "\U0001f525 National Gas", "\u26a1 Electricity", "\U0001f527 GASSCO", "\U0001f6a2 LNG"
+    tab_dash, tab_terminals, tab_gas, tab_elexon, tab_gassco, tab_lng = st.tabs([
+        "\U0001f4ca Dashboard", "\U0001f3ed Terminals", "\U0001f525 Flows", "\u26a1 Electricity", "\U0001f527 GASSCO", "\U0001f6a2 LNG"
     ])
 
     # ── DASHBOARD TAB ──
@@ -1187,6 +1289,122 @@ def main():
                         )
         else:
             st.info("Entry point flow data unavailable.")
+
+    # ── TERMINALS TAB ──
+    with tab_terminals:
+        # Fetch entry point flows (shared cache)
+        term_entry_df = get_entry_point_flows()
+        if term_entry_df is not None and len(term_entry_df) > 0:
+            gd_start = gas_day_start()
+            term_entry_df = term_entry_df[term_entry_df['Timestamp'] >= gd_start].copy()
+
+            # Total consolidated terminal chart at top
+            if len(term_entry_df) > 0:
+                fig_total = create_stacked_flow_chart(term_entry_df, TERMINAL_CATEGORIES, "Total Terminal Entry Flows", height=280, stacked=False)
+                st.plotly_chart(fig_total, use_container_width=True, theme=None, key="term_total")
+
+                # Terminal selector
+                selected_terminal = st.radio(
+                    "Select Terminal", list(TERMINAL_SUBTERMINALS.keys()),
+                    horizontal=True, key="terminal_select", label_visibility="collapsed"
+                )
+
+                subs = TERMINAL_SUBTERMINALS[selected_terminal]
+
+                # Fetch nominations
+                prevailing_noms = get_prevailing_nominations()
+                historic_noms = get_historic_nominations()
+
+                # Build sub-terminal line chart with nomination overlays
+                start = gd_start
+                end = start + timedelta(days=1)
+                now_naive = uk_now().replace(tzinfo=None)
+                fig = go.Figure()
+                for sub in subs:
+                    if sub["flow_col"] and sub["flow_col"] in term_entry_df.columns:
+                        fig.add_trace(go.Scatter(
+                            x=term_entry_df['Timestamp'], y=term_entry_df[sub["flow_col"]].fillna(0),
+                            mode='lines', line=dict(width=2, color=sub["color"]),
+                            name=sub["name"],
+                            hovertemplate=f'<b>{sub["name"]}</b>: %{{y:.1f}} mcm<extra></extra>'
+                        ))
+                    # Nomination dashed line
+                    nom_val = prevailing_noms.get(sub["nom_name"])
+                    if nom_val is not None and nom_val > 0.01:
+                        fig.add_hline(
+                            y=nom_val, line_dash="dash", line_color=sub["color"], line_width=1.5,
+                            annotation_text=f'{sub["name"]} nom: {nom_val:.1f}',
+                            annotation_position="right",
+                            annotation=dict(font=dict(size=9, color=sub["color"]), bgcolor="#131825")
+                        )
+                fig.add_vline(
+                    x=int(now_naive.timestamp() * 1000), line_color="#E2E8F0", line_width=1.5,
+                    annotation_text="<b>Now</b>", annotation_position="top",
+                    annotation=dict(font=dict(size=10, color='#E2E8F0'), bgcolor="#131825",
+                                    bordercolor="#252D44", borderwidth=1)
+                )
+                layout = get_chart_layout(f"<b>{selected_terminal} — Sub-Terminal Flows vs Nominations</b>", 350)
+                layout['xaxis']['range'] = [start, end]
+                layout['xaxis']['tickformat'] = '%H:%M'
+                layout['yaxis']['title'] = dict(text='Flow Rate (mcm)', font=dict(color='#7A8599'))
+                layout['showlegend'] = True
+                layout['legend'] = dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5,
+                                        font=dict(size=10, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
+                layout['margin'] = dict(l=50, r=120, t=35, b=55)
+                fig.update_layout(**layout)
+                st.plotly_chart(fig, use_container_width=True, theme=None, key="term_subterminal")
+
+                # Nomination summary cards
+                cols = st.columns(len(subs))
+                for col, sub in zip(cols, subs):
+                    with col:
+                        flow_val = term_entry_df[sub["flow_col"]].iloc[-1] if sub["flow_col"] and sub["flow_col"] in term_entry_df.columns else 0
+                        nom_val = prevailing_noms.get(sub["nom_name"], 0)
+                        # Status
+                        if nom_val > 0.1:
+                            ratio = flow_val / nom_val
+                            if ratio > 1.10:
+                                status = '<span style="color:#60A5FA;">Above nom</span>'
+                            elif ratio < 0.90:
+                                status = '<span style="color:#F59E0B;">Below nom</span>'
+                            else:
+                                status = '<span style="color:#34D399;">On track</span>'
+                        else:
+                            status = '<span style="color:#7A8599;">No nom</span>'
+                        # Nom change indicator
+                        nom_change_html = ""
+                        hist = historic_noms.get(sub["nom_name"], [])
+                        if len(hist) >= 2:
+                            first_nom = hist[0][1]
+                            last_nom = hist[-1][1]
+                            delta = last_nom - first_nom
+                            if abs(delta) > 1.0:
+                                arrow = "\u2191" if delta > 0 else "\u2193"
+                                change_color = "#60A5FA" if delta > 0 else "#F59E0B"
+                                # Find when the big change happened
+                                change_time = ""
+                                for i in range(1, len(hist)):
+                                    if abs(hist[i][1] - hist[i-1][1]) > 0.5:
+                                        change_time = hist[i][0].strftime("%H:%M")
+                                nom_change_html = (
+                                    f'<div style="color:{change_color};font-size:0.7rem;margin-top:3px;">'
+                                    f'Nom {arrow}{abs(delta):.1f}'
+                                    f'{" at " + change_time if change_time else ""}</div>'
+                                )
+
+                        st.markdown(
+                            f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid {sub["color"]};'
+                            f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;">'
+                            f'<div style="color:#E2E8F0;font-size:0.85rem;font-weight:600;margin-bottom:4px;">{sub["name"]}</div>'
+                            f'<div style="font-size:0.75rem;color:#7A8599;">Flow: <strong style="color:#E2E8F0;">{flow_val:.1f}</strong> mcm</div>'
+                            f'<div style="font-size:0.75rem;color:#7A8599;">Nom: <strong style="color:#E2E8F0;">{nom_val:.1f}</strong> mcm</div>'
+                            f'<div style="font-size:0.75rem;margin-top:4px;">{status}</div>'
+                            f'{nom_change_html}'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+        else:
+            st.info("Terminal flow data unavailable.")
 
     # ── NATIONAL GAS TAB ──
     with tab_gas:
