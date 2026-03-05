@@ -1024,7 +1024,8 @@ NOM_PUBOBJ_IDS = (
     "PUBOBJ1107,PUBOBJ1108,PUBOBJ1109,PUBOBJ1105,PUBOBJ1110,PUBOBJ1111,"
     "PUBOBJ1113,PUBOBJ1114,PUBOBJ1116,PUBOBJ2071,PUBOBJ1676,"
     "PUBOBJ1120,PUBOBJ1122,PUBOBJ1121,PUBOBJ1123,PUBOBJ1124,PUBOBJ1125,"
-    "PUBOBJ1112,PUBOBJ1135,PUBOBJ1117,PUBOBJ1118,PUBOBJ1119,PUBOBJ1141"
+    "PUBOBJ1112,PUBOBJ1135,PUBOBJ1117,PUBOBJ1118,PUBOBJ1119,PUBOBJ1141,"
+    "PUBOBJ1126,PUBOBJ1094,PUBOBJ1106,PUBOBJ1597,PUBOBJ1596,PUBOBJ1093"
 )
 
 LNG_SUBTERMINALS = {
@@ -1063,6 +1064,21 @@ TERMINAL_SUBTERMINALS = {
     ],
 }
 
+IC_SUBTERMINALS = {
+    "BBL": [
+        {"name": "BBL", "import_col": "Bacton BBL Import", "export_col": "Bacton BBL Export",
+         "nom_import": "Bacton-BBL Entry", "nom_export": "Bacton-BBL Exit", "color": "#60A5FA"},
+    ],
+    "IUK": [
+        {"name": "IUK", "import_col": "Bacton INT Import", "export_col": "Bacton INT Export",
+         "nom_import": "Bacton Entry", "nom_export": "Bacton Exit", "color": "#A78BFA"},
+    ],
+    "Moffat": [
+        {"name": "Moffat", "import_col": None, "export_col": "Moffat Export",
+         "nom_import": None, "nom_export": "Moffat Exit", "color": "#F472B6"},
+    ],
+}
+
 # Map nomination name (from CSV "Data Item" field) → flow column
 NOM_TO_FLOW = {}
 for subs in TERMINAL_SUBTERMINALS.values():
@@ -1090,6 +1106,18 @@ def _fetch_nominations_csv(latest_flag):
     return pd.read_csv(io.StringIO(response.text))
 
 
+def _parse_nom_name(parts):
+    """Extract nomination name from Data Item parts. Appends direction for IC Entry/Exit."""
+    nom_name = parts[2]
+    if len(parts) >= 4:
+        p3 = parts[3].strip()
+        if "Entry" in p3:
+            nom_name = f"{parts[2]} Entry"
+        elif "Exit" in p3:
+            nom_name = f"{parts[2]} Exit"
+    return nom_name
+
+
 @st.cache_data(ttl=300)
 def get_prevailing_nominations():
     """Fetch latest prevailing nominations for all sub-terminals. Returns dict {nom_name: mcm}."""
@@ -1100,7 +1128,7 @@ def get_prevailing_nominations():
             data_item = str(row.get("Data Item", ""))
             parts = [p.strip() for p in data_item.split(",")]
             if len(parts) >= 3:
-                nom_name = parts[2]
+                nom_name = _parse_nom_name(parts)
                 value_kwh = float(row.get("Value", 0))
                 result[nom_name] = value_kwh / KWH_MCM
         logger.info("Prevailing nominations fetched: %d entries — keys: %s", len(result), list(result.keys()))
@@ -1120,7 +1148,7 @@ def get_historic_nominations():
             data_item = str(row.get("Data Item", ""))
             parts = [p.strip() for p in data_item.split(",")]
             if len(parts) >= 3:
-                nom_name = parts[2]
+                nom_name = _parse_nom_name(parts)
                 value_kwh = float(row.get("Value", 0))
                 ts_str = str(row.get("Applicable At", ""))
                 try:
@@ -1169,8 +1197,8 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-    tab_dash, tab_terminals, tab_gas, tab_elexon, tab_gassco, tab_lng = st.tabs([
-        "\U0001f4ca Dashboard", "\U0001f3ed Terminals", "\U0001f525 Flows", "\u26a1 Electricity", "\U0001f527 GASSCO", "\U0001f6a2 LNG"
+    tab_dash, tab_terminals, tab_lng, tab_ic, tab_gas, tab_elexon, tab_gassco = st.tabs([
+        "\U0001f4ca Dashboard", "\U0001f3ed Terminals", "\U0001f6a2 LNG", "\U0001f517 Interconnectors", "\U0001f525 Flows", "\u26a1 Electricity", "\U0001f527 GASSCO"
     ])
 
     # ── DASHBOARD TAB ──
@@ -1830,6 +1858,218 @@ def main():
 
         else:
             st.info("LNG flow data unavailable.")
+
+    # ── INTERCONNECTORS TAB ──
+    with tab_ic:
+        # Fetch supply/demand category data (cached)
+        ic_supply_df, ic_demand_df = fetch_parallel(
+            (get_gas_data, ("supplyCategoryGraph",)),
+            (get_gas_data, ("demandCategoryGraph",)),
+        )
+        ic_gd_start = gas_day_start()
+        ic_has_data = ic_supply_df is not None and ic_demand_df is not None
+
+        if ic_has_data:
+            ic_supply_df, ic_demand_df = prepare_gas_dataframes(ic_supply_df.copy(), ic_demand_df.copy())
+
+            # ── Combined net flow stacked area chart ──
+            ic_now = uk_now().replace(tzinfo=None)
+            ic_end = ic_gd_start + timedelta(days=1)
+            fig_ic_total = go.Figure()
+            ic_net_data = {}
+            for ic_name, subs in IC_SUBTERMINALS.items():
+                sub = subs[0]
+                imp_val = ic_supply_df[sub["import_col"]].fillna(0) if sub["import_col"] and sub["import_col"] in ic_supply_df.columns else pd.Series(0, index=ic_supply_df.index)
+                exp_val = ic_demand_df[sub["export_col"]].fillna(0) if sub["export_col"] and sub["export_col"] in ic_demand_df.columns else pd.Series(0, index=ic_demand_df.index)
+                # Align to supply timestamps (both should be on same cadence)
+                net = imp_val.values - exp_val.values[:len(imp_val)]
+                ic_net_data[ic_name] = net
+                fig_ic_total.add_trace(go.Scatter(
+                    x=ic_supply_df['Timestamp'], y=net,
+                    mode='lines', line=dict(width=0.5, color=sub["color"]),
+                    fillcolor=sub["color"], stackgroup='one',
+                    name=ic_name,
+                    hovertemplate=f'<b>{ic_name}</b>: %{{y:.1f}} mcm<extra></extra>'
+                ))
+            # Zero reference line
+            fig_ic_total.add_hline(y=0, line_color="#7A8599", line_width=1, line_dash="dot")
+            fig_ic_total.add_vline(
+                x=int(ic_now.timestamp() * 1000), line_color="#E2E8F0", line_width=1.5,
+                annotation_text="<b>Now</b>", annotation_position="top",
+                annotation=dict(font=dict(size=10, color='#E2E8F0'), bgcolor="#131825",
+                                bordercolor="#252D44", borderwidth=1)
+            )
+            # Y-axis: symmetric around zero
+            all_nets = np.concatenate(list(ic_net_data.values()))
+            y_abs_max = max(abs(all_nets.min()), abs(all_nets.max()), 1) * 1.10
+            layout = get_chart_layout("<b>Net Interconnector Flows</b> (+ Import / − Export)", 300)
+            layout['xaxis']['range'] = [ic_gd_start, ic_end]
+            layout['xaxis']['tickformat'] = '%H:%M'
+            layout['yaxis']['title'] = dict(text='Net Flow (mcm)', font=dict(color='#7A8599'))
+            layout['yaxis']['range'] = [-y_abs_max, y_abs_max]
+            layout['showlegend'] = True
+            layout['legend'] = dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5,
+                                    font=dict(size=10, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
+            layout['margin'] = dict(l=50, r=20, t=35, b=60)
+            fig_ic_total.update_layout(**layout)
+            st.plotly_chart(fig_ic_total, use_container_width=True, theme=None, key="ic_total")
+
+            # ── Radio selector ──
+            ic_view = st.radio(
+                "Select Interconnector", list(IC_SUBTERMINALS.keys()),
+                horizontal=True, key="ic_view", label_visibility="collapsed"
+            )
+
+            subs = IC_SUBTERMINALS[ic_view]
+            ic_prevailing = get_prevailing_nominations()
+            ic_historic = get_historic_nominations()
+
+            ic_elapsed = max(0, (ic_now - ic_gd_start).total_seconds())
+            ic_remaining = max(0, 86400 - ic_elapsed)
+
+            for sub_idx, sub in enumerate(subs):
+                imp_col = sub["import_col"]
+                exp_col = sub["export_col"]
+                has_imp = imp_col and imp_col in ic_supply_df.columns
+                has_exp = exp_col and exp_col in ic_demand_df.columns
+
+                imp_flow = ic_supply_df[imp_col].iloc[-1] if has_imp else 0
+                exp_flow = ic_demand_df[exp_col].iloc[-1] if has_exp else 0
+                net_flow = imp_flow - exp_flow
+
+                imp_nom = ic_prevailing.get(sub["nom_import"], 0) if sub["nom_import"] else 0
+                exp_nom = ic_prevailing.get(sub["nom_export"], 0) if sub["nom_export"] else 0
+                net_nom = imp_nom - exp_nom
+
+                # Compute net flow series
+                imp_series = ic_supply_df[imp_col].fillna(0) if has_imp else pd.Series(0, index=ic_supply_df.index)
+                exp_series = ic_demand_df[exp_col].fillna(0) if has_exp else pd.Series(0, index=ic_demand_df.index)
+                net_series = imp_series.values - exp_series.values[:len(imp_series)]
+
+                # EoD at current rates
+                if ic_elapsed > 0:
+                    avg_net = np.mean(net_series)
+                    eod = avg_net * (ic_elapsed / 86400) + net_flow * (ic_remaining / 86400)
+                else:
+                    eod = 0
+
+                # Build chart
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=ic_supply_df['Timestamp'], y=net_series,
+                    mode='lines', line=dict(width=2, color=sub["color"]),
+                    name='Net Flow',
+                    fill='tozeroy', fillcolor=sub["color"] + "33",
+                    hovertemplate='<b>Net</b>: %{y:.1f} mcm<extra></extra>'
+                ))
+
+                # Stepped net nomination line from historic data
+                hist_imp = ic_historic.get(sub["nom_import"], []) if sub["nom_import"] else []
+                hist_exp = ic_historic.get(sub["nom_export"], []) if sub["nom_export"] else []
+
+                # Build net nomination stepped series
+                # Merge import and export timestamps, compute net at each point
+                nom_times_set = set()
+                imp_by_ts = {}
+                exp_by_ts = {}
+                for ts, val in hist_imp:
+                    nom_times_set.add(ts)
+                    imp_by_ts[ts] = val
+                for ts, val in hist_exp:
+                    nom_times_set.add(ts)
+                    exp_by_ts[ts] = val
+
+                if nom_times_set:
+                    sorted_ts = sorted(nom_times_set)
+                    last_imp, last_exp = 0, 0
+                    nom_times = []
+                    nom_vals = []
+                    for i, ts in enumerate(sorted_ts):
+                        last_imp = imp_by_ts.get(ts, last_imp)
+                        last_exp = exp_by_ts.get(ts, last_exp)
+                        net_nom_val = last_imp - last_exp
+                        nom_times.append(ts)
+                        nom_vals.append(net_nom_val)
+                        if i < len(sorted_ts) - 1:
+                            nom_times.append(sorted_ts[i + 1] - timedelta(seconds=1))
+                            nom_vals.append(net_nom_val)
+                    nom_times.append(ic_now)
+                    nom_vals.append(nom_vals[-1])
+                    fig.add_trace(go.Scatter(
+                        x=nom_times, y=nom_vals,
+                        mode='lines', line=dict(width=1.5, color='#7A8599', dash='dash'),
+                        name='Net Nomination',
+                        hovertemplate='<b>Net Nom</b>: %{y:.1f} mcm<extra></extra>'
+                    ))
+                elif abs(net_nom) > 0.01:
+                    fig.add_hline(y=net_nom, line_dash="dash", line_color="#7A8599", line_width=1.5)
+
+                # Zero reference + Now marker
+                fig.add_hline(y=0, line_color="#7A8599", line_width=0.5, line_dash="dot")
+                fig.add_vline(
+                    x=int(ic_now.timestamp() * 1000), line_color="#E2E8F0", line_width=1,
+                    annotation_text="<b>Now</b>", annotation_position="top",
+                    annotation=dict(font=dict(size=9, color='#E2E8F0'), bgcolor="#131825",
+                                    bordercolor="#252D44", borderwidth=1)
+                )
+
+                # Y-axis
+                y_vals = list(net_series)
+                if nom_times_set:
+                    y_vals.extend(nom_vals)
+                y_abs = max(abs(min(y_vals)), abs(max(y_vals)), 1) * 1.10
+                layout = get_chart_layout(f"<b>{sub['name']}</b>", 220)
+                layout['xaxis']['range'] = [ic_gd_start, ic_end]
+                layout['xaxis']['tickformat'] = '%H:%M'
+                layout['yaxis']['title'] = dict(text='mcm', font=dict(color='#7A8599', size=10))
+                layout['yaxis']['range'] = [-y_abs, y_abs]
+                layout['showlegend'] = True
+                layout['legend'] = dict(orientation="h", yanchor="top", y=1.15, xanchor="right", x=1,
+                                        font=dict(size=9, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
+                layout['margin'] = dict(l=50, r=20, t=30, b=25)
+                fig.update_layout(**layout)
+
+                # Chart + card side by side
+                col_chart, col_card = st.columns([4, 1])
+                with col_chart:
+                    st.plotly_chart(fig, use_container_width=True, theme=None, key=f"ic_sub_{sub_idx}")
+                with col_card:
+                    # Direction label
+                    if net_flow > 0.1:
+                        direction = '<span style="color:#60A5FA;">Importing</span>'
+                    elif net_flow < -0.1:
+                        direction = '<span style="color:#F59E0B;">Exporting</span>'
+                    else:
+                        direction = '<span style="color:#7A8599;">Idle</span>'
+                    # Status vs nomination
+                    if abs(net_nom) > 0.1:
+                        if abs(net_flow - net_nom) / max(abs(net_nom), 0.1) < 0.10:
+                            status = '<span style="color:#34D399;">On track</span>'
+                        elif net_flow > net_nom:
+                            status = '<span style="color:#60A5FA;">Above nom</span>'
+                        else:
+                            status = '<span style="color:#F59E0B;">Below nom</span>'
+                    else:
+                        status = '<span style="color:#7A8599;">No nom</span>'
+                    # EoD color
+                    eod_color = "#34D399" if abs(net_nom) < 0.1 or abs(eod - net_nom) / max(abs(net_nom), 0.1) < 0.10 else ("#60A5FA" if eod > net_nom else "#F59E0B")
+
+                    st.markdown(
+                        f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid {sub["color"]};'
+                        f'border-radius:0 8px 8px 0;padding:10px 12px;text-align:center;margin-top:10px;">'
+                        f'<div style="color:#E2E8F0;font-size:0.85rem;font-weight:600;margin-bottom:6px;">{sub["name"]}</div>'
+                        f'<div style="font-size:0.7rem;margin-bottom:4px;">{direction}</div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">Import: <strong style="color:#E2E8F0;">{imp_flow:.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">Export: <strong style="color:#E2E8F0;">{exp_flow:.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">Net: <strong style="color:#E2E8F0;">{net_flow:+.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;margin-top:4px;">Nom: <strong style="color:#E2E8F0;">{net_nom:+.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;color:#7A8599;">EoD: <strong style="color:{eod_color};">{eod:+.1f}</strong></div>'
+                        f'<div style="font-size:0.7rem;margin-top:4px;">{status}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+        else:
+            st.info("Interconnector flow data unavailable.")
 
 
 if __name__ == "__main__":
