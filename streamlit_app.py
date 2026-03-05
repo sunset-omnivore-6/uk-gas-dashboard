@@ -288,7 +288,7 @@ def create_electricity_demand_plot(yesterday_actual, today_actual, forecast_data
         fc = forecast_data.copy(); fc['gw'] = fc['demand_mw'] / 1000
         fig.add_trace(go.Scatter(x=fc['timestamp'], y=fc['gw'], mode='lines', line=dict(color='#34D399', width=4), name='Forecast', hovertemplate='<b>Forecast:</b> %{y:.1f} GW<extra></extra>'))
     now = utc_now().replace(tzinfo=None)
-    fig.add_vline(x=now, line_dash='dot', line_color='#E2E8F0', line_width=2, annotation_text='Now', annotation_position='top', annotation=dict(font=dict(size=11, color='#E2E8F0', family='Arial Black'), bgcolor='#131825', bordercolor='#252D44', borderwidth=1, borderpad=4))
+    fig.add_vline(x=int(now.timestamp() * 1000), line_dash='dot', line_color='#E2E8F0', line_width=2, annotation_text='Now', annotation_position='top', annotation=dict(font=dict(size=11, color='#E2E8F0', family='Arial Black'), bgcolor='#131825', bordercolor='#252D44', borderwidth=1, borderpad=4))
     month_name = uk_now().strftime('%B')
     year = uk_now().year
     fig.update_layout(
@@ -368,7 +368,7 @@ def create_wind_generation_plot(actual_df, forecast_df, gas_day_start, gas_day_e
         fig.add_hline(y=avg_actual, line_dash='dash', line_color='#34D399', line_width=1.5, annotation_text=f"Avg: {avg_actual:.1f} GW", annotation_position='right', annotation=dict(font=dict(size=11, color='#34D399')))
     fig.add_hline(y=9.5, line_dash='dot', line_color='#7A8599', line_width=1.5, annotation_text="Annual avg: 9.5 GW", annotation_position='right', annotation=dict(font=dict(size=11, color='#7A8599')))
     now = utc_now().replace(tzinfo=None)
-    fig.add_vline(x=now, line_dash='dot', line_color='#E2E8F0', line_width=2, annotation_text='Now', annotation_position='top', annotation=dict(font=dict(size=11, color='#E2E8F0', family='Arial Black'), bgcolor='#131825', bordercolor='#252D44', borderwidth=1, borderpad=4))
+    fig.add_vline(x=int(now.timestamp() * 1000), line_dash='dot', line_color='#E2E8F0', line_width=2, annotation_text='Now', annotation_position='top', annotation=dict(font=dict(size=11, color='#E2E8F0', family='Arial Black'), bgcolor='#131825', bordercolor='#252D44', borderwidth=1, borderpad=4))
     today_str = uk_now().strftime('%d %b %Y')
     fig.update_layout(
         title=dict(text=f'<b>UK Wind Generation: Actual vs Forecast</b><br><sub>Blue = Actual | Orange dashed = Forecast | {today_str} gas day</sub>', font=dict(size=16, color='#E2E8F0')),
@@ -607,6 +607,27 @@ def get_linepack_data():
         return None
 
 
+@st.cache_data(ttl=60)
+def get_pclp_data():
+    """Fetch Predicted Closing Linepack from linepackDayGraph endpoint."""
+    url = "https://data.nationalgas.com/api/gas-system-status-graph"
+    try:
+        response = requests.post(
+            url, json={"request": "linepackDayGraph"},
+            headers={"Content-Type": "application/json"}, timeout=15
+        )
+        response.raise_for_status()
+        data = response.json()
+        df = pd.DataFrame(data.get("data", []))
+        if len(df) == 0:
+            return None
+        df['Timestamp'] = pd.to_datetime(df['dateTime'], unit='ms')
+        return df
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.warning("Failed to fetch PCLP: %s", e)
+        return None
+
+
 def _linepack_poll_interval():
     """Smart polling: fast during h:01–h:10 if this hour's data hasn't arrived."""
     now = uk_now()
@@ -635,18 +656,38 @@ def render_linepack_section():
     if latest_ts.hour == now.hour or (now_naive - latest_ts.to_pydatetime()).total_seconds() < 300:
         st.session_state["last_linepack_hour"] = now.hour
 
+    # Fetch PCLP (Predicted Closing Linepack)
+    pclp_df = get_pclp_data()
+    pclp_val = None
+    pclp_col = "Predicted Closing Linepack (mcm)"
+    if pclp_df is not None and pclp_col in pclp_df.columns:
+        pclp_val = pclp_df[pclp_col].iloc[-1]
+
+    # System balance: PCLP - opening (positive = oversupplied)
+    # Opening linepack = yesterday's closing linepack (gas day boundary at 05:00)
+    balance = (pclp_val - opening_val) if pclp_val is not None else None
+
     change_color = "#34D399" if change >= 0 else "#EF4444"
     change_arrow = "+" if change >= 0 else ""
 
-    # Sparkline
+    # Sparkline with PCLP overlay
     start = gas_day_start()
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=lp_df['Timestamp'], y=lp_df['Latest linepack'],
         mode='lines', line=dict(color='#34D399', width=2.5),
         fill='tozeroy', fillcolor='rgba(52, 211, 153, 0.1)',
+        name='Linepack',
         hovertemplate='<b>%{x|%H:%M}</b><br>Linepack: %{y:.1f} mcm<extra></extra>'
     ))
+    if pclp_df is not None and pclp_col in pclp_df.columns:
+        fig.add_trace(go.Scatter(
+            x=pclp_df['Timestamp'], y=pclp_df[pclp_col],
+            mode='lines+markers', line=dict(color='#F59E0B', width=2, dash='dot'),
+            marker=dict(size=5, color='#F59E0B'),
+            name='PCLP',
+            hovertemplate='<b>%{x|%H:%M}</b><br>PCLP: %{y:.1f} mcm<extra></extra>'
+        ))
     fig.update_layout(
         plot_bgcolor='#0B0F19', paper_bgcolor='#131825',
         font=dict(color='#E2E8F0', size=11), height=180,
@@ -656,18 +697,37 @@ def render_linepack_section():
                    tickfont=dict(color='#7A8599', size=10)),
         yaxis=dict(gridcolor='#1E2640', linecolor='#252D44', showline=True,
                    tickfont=dict(color='#7A8599', size=10)),
-        showlegend=False
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=1.15, xanchor="right", x=1,
+                    font=dict(size=10, color='#7A8599'), bgcolor='rgba(0,0,0,0)')
     )
 
     col_val, col_chart = st.columns([1, 3])
     with col_val:
+        # PCLP card
+        if pclp_val is not None:
+            bal_color = "#34D399" if balance >= 0 else "#EF4444"
+            bal_arrow = "+" if balance >= 0 else ""
+            bal_label = "oversupplied" if balance >= 0 else "undersupplied"
+            st.markdown(
+                f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #F59E0B;'
+                f'border-radius:0 8px 8px 0;padding:12px 16px;text-align:center;margin-bottom:8px;">'
+                f'<div style="color:#7A8599;font-size:0.75rem;margin-bottom:2px;">Predicted Close</div>'
+                f'<div style="color:#F59E0B;font-size:1.6rem;font-weight:700;">{pclp_val:.1f}</div>'
+                f'<div style="color:#7A8599;font-size:0.7rem;">mcm</div>'
+                f'<div style="color:{bal_color};font-size:0.8rem;margin-top:4px;">'
+                f'{bal_arrow}{balance:.1f} vs open ({bal_label})</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        # Current linepack card
         st.markdown(
             f'<div style="background:#131825;border:1px solid #252D44;border-left:4px solid #34D399;'
-            f'border-radius:0 8px 8px 0;padding:16px 20px;text-align:center;">'
-            f'<div style="color:#7A8599;font-size:0.8rem;margin-bottom:4px;">NTS Linepack</div>'
-            f'<div style="color:#34D399;font-size:2rem;font-weight:700;">{latest_val:.1f}</div>'
-            f'<div style="color:#7A8599;font-size:0.75rem;">mcm</div>'
-            f'<div style="color:{change_color};font-size:0.85rem;margin-top:6px;">'
+            f'border-radius:0 8px 8px 0;padding:12px 16px;text-align:center;">'
+            f'<div style="color:#7A8599;font-size:0.75rem;margin-bottom:2px;">Current Linepack</div>'
+            f'<div style="color:#34D399;font-size:1.6rem;font-weight:700;">{latest_val:.1f}</div>'
+            f'<div style="color:#7A8599;font-size:0.7rem;">mcm</div>'
+            f'<div style="color:{change_color};font-size:0.8rem;margin-top:4px;">'
             f'{change_arrow}{change:.1f} from open ({opening_val:.1f})</div>'
             f'</div>',
             unsafe_allow_html=True
@@ -698,7 +758,7 @@ def create_flow_chart(df, column_name, chart_title, color='#60A5FA', yesterday_d
     r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
     fig.add_trace(go.Scatter(x=df['Timestamp'], y=df[column_name], mode='lines', line=dict(color=color, width=3), fill='tozeroy', fillcolor=f'rgba({r},{g},{b},0.15)', hovertemplate='<b>Time:</b> %{x|%H:%M}<br><b>Flow:</b> %{y:.2f} mcm<extra></extra>'))
     fig.add_hline(y=avg, line_dash="dash", line_color="#EF4444", line_width=2, annotation_text=f"<b>Avg: {avg:.2f}</b>", annotation_position="right", annotation=dict(font=dict(size=12, color="#EF4444"), bgcolor="#131825", bordercolor="#EF4444", borderwidth=1))
-    fig.add_vline(x=now, line_color="#E2E8F0", line_width=2, annotation_text=f"<b>Now: {total:.2f}</b>", annotation_position="top", annotation=dict(font=dict(size=12, color='#E2E8F0'), bgcolor="#131825", bordercolor="#252D44", borderwidth=1))
+    fig.add_vline(x=int(now.timestamp() * 1000), line_color="#E2E8F0", line_width=2, annotation_text=f"<b>Now: {total:.2f}</b>", annotation_position="top", annotation=dict(font=dict(size=12, color='#E2E8F0'), bgcolor="#131825", bordercolor="#252D44", borderwidth=1))
     y_max = max(df[column_name].max(), 1)
     layout = get_chart_layout(f"<b>{chart_title}</b>", 400)
     layout['xaxis']['range'] = [start, end]
